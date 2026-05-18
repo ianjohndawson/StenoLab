@@ -35,11 +35,13 @@ import subprocess
 
 class StenoApp(tk.Tk):
     def __init__(self):
+        self._set_windows_app_id()
         super().__init__()
 
         self.title("StenoLab")
         self.geometry("1100x700")
         self.minsize(900, 600)
+        self._apply_window_icon()
 
         # Theme - read persisted choice (default: dark)
         settings = load_settings()
@@ -88,11 +90,38 @@ class StenoApp(tk.Tk):
 
         # Reopen tabs from previous session
         self._restore_open_tabs()
+        self._refresh_content_state(show_home=not self.tabs)
 
         # Re-apply title bar after the window is mapped, so DWM has a real HWND
         # to operate on. This makes the dark title bar reliably stick on Windows.
         self.after(50, lambda: set_titlebar_dark(self, self._theme_mode == "dark"))
         self.after(400, self._poll_statusbar)
+
+    @staticmethod
+    def _set_windows_app_id():
+        """Give pythonw-launched windows their own taskbar identity on Windows."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            app_id = "StenoLab.DictionaryEditor"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        except (AttributeError, OSError, ImportError):
+            pass
+
+    def _apply_window_icon(self):
+        """Use the bundled book icon for the window/taskbar when available."""
+        asset_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+        png_path = os.path.join(asset_dir, "stenolab.png")
+        ico_path = os.path.join(asset_dir, "stenolab.ico")
+        try:
+            if os.path.exists(png_path):
+                self._icon_image = tk.PhotoImage(file=png_path)
+                self.iconphoto(True, self._icon_image)
+            if os.name == "nt" and os.path.exists(ico_path):
+                self.iconbitmap(ico_path)
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------
     # Menu bar
@@ -257,7 +286,6 @@ class StenoApp(tk.Tk):
         self.statusbar.pack(fill=tk.X, side=tk.BOTTOM)
 
         self.statusbar.update_status(entries=0, dictionaries=0, active="None", unsaved=0)
-        self._refresh_content_state()
 
     def _build_home_screen(self, parent):
         frame = ttk.Frame(parent, style="AppShell.TFrame")
@@ -344,7 +372,7 @@ class StenoApp(tk.Tk):
                 command=lambda p=path: self._open_dictionary_path(p),
             ).pack(side=tk.RIGHT)
 
-    def _refresh_content_state(self):
+    def _refresh_content_state(self, show_home: bool = False):
         if not hasattr(self, "home_frame") or not hasattr(self, "notebook"):
             return
         if self.tabs:
@@ -355,9 +383,12 @@ class StenoApp(tk.Tk):
         else:
             if self.notebook.winfo_ismapped():
                 self.notebook.pack_forget()
-            self._refresh_home_recent()
-            if not self.home_frame.winfo_ismapped():
-                self.home_frame.pack(fill=tk.BOTH, expand=True)
+            if show_home:
+                self._refresh_home_recent()
+                if not self.home_frame.winfo_ismapped():
+                    self.home_frame.pack(fill=tk.BOTH, expand=True)
+            elif self.home_frame.winfo_ismapped():
+                self.home_frame.pack_forget()
 
     # ------------------------------------------------------------
     # Tab switching

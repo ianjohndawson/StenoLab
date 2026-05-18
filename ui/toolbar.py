@@ -34,16 +34,12 @@ class Toolbar(ttk.Frame):
     def _build(self):
         left = ttk.Frame(self, style="ToolbarGroup.TFrame")
         left.pack(side=tk.LEFT)
-        ttk.Label(left, text="DICTIONARY", style="ToolbarLabel.TLabel").pack(
-            side=tk.LEFT, padx=(2, 8)
-        )
 
         for i, (symbol, key, tip) in enumerate(self._LEFT_BUTTONS):
-            style = "Primary.TButton" if key in {"open", "add"} else "Icon.TButton"
             btn = ttk.Button(
                 left,
                 text=symbol,
-                style=style,
+                style="Icon.TButton",
                 command=lambda k=key: self._trigger(k),
             )
             btn.pack(side=tk.LEFT, padx=(0 if i == 0 else 4, 0), pady=1)
@@ -51,9 +47,6 @@ class Toolbar(ttk.Frame):
 
         right = ttk.Frame(self, style="ToolbarGroup.TFrame")
         right.pack(side=tk.RIGHT)
-        ttk.Label(right, text="HISTORY", style="ToolbarLabel.TLabel").pack(
-            side=tk.LEFT, padx=(0, 8)
-        )
         for symbol, key, tip, attr in self._RIGHT_BUTTONS:
             btn = ttk.Button(
                 right,

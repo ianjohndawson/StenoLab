@@ -52,6 +52,9 @@ class SearchBar(ttk.Frame):
         self.header_label.pack(side=tk.LEFT)
         self.header_label.bind("<Button-1>", self._toggle)
 
+        self.active_search_frame = ttk.Frame(self.header)
+        self.active_search_frame.pack(side=tk.LEFT, padx=(6, 0))
+
         self.active_hint = ttk.Label(
             self.header, text="", foreground=C["fg_dim"], padding=(0, 6)
         )
@@ -141,25 +144,41 @@ class SearchBar(ttk.Frame):
             self.on_search(self.get_config())
 
     def _update_active_hint(self):
-        parts = []
-        sq = self.steno_query_var.get().strip()
-        tq = self.text_query_var.get().strip()
-        if sq:
-            parts.append(f'steno: "{sq}"')
-        if tq:
-            parts.append(f'text: "{tq}"')
-
-        if self.expanded and self._count_suffix:
-            self.active_hint.configure(text=self._count_suffix)
-        elif not self.expanded and (parts or self._count_suffix):
-            text = "active: " + ", ".join(parts) if parts else ""
-            if self._count_suffix:
-                text = (text + " - " if text else "") + self._count_suffix
-            self.active_hint.configure(text=text)
-        else:
-            self.active_hint.configure(text="")
-
+        self.active_hint.configure(text=self._count_suffix)
+        self._refresh_search_chips()
         self._refresh_no_match_actions()
+
+    def _search_chip_defs(self):
+        chips = []
+        text_query = self.text_query_var.get().strip()
+        steno_query = self.steno_query_var.get().strip()
+        if text_query:
+            chips.append((f'Text: "{text_query}"', lambda: self.text_query_var.set("")))
+        if steno_query:
+            chips.append((f'Steno: "{steno_query}"', lambda: self.steno_query_var.set("")))
+        if self.scope_var.get() == "All Dictionaries":
+            chips.append(("All dictionaries", lambda: self.scope_var.set("Current Dictionary")))
+        if self.text_match_case_var.get():
+            chips.append(("Match case", lambda: self.text_match_case_var.set(False)))
+        if self.steno_whole_strokes_var.get():
+            chips.append(("Whole strokes", lambda: self.steno_whole_strokes_var.set(False)))
+        return chips
+
+    def _refresh_search_chips(self):
+        if not hasattr(self, "active_search_frame"):
+            return
+        for child in self.active_search_frame.winfo_children():
+            child.destroy()
+        chips = self._search_chip_defs()
+        if not chips:
+            return
+        for label, callback in chips:
+            ttk.Button(
+                self.active_search_frame,
+                text=f"{label}  x",
+                style="Link.TButton",
+                command=callback,
+            ).pack(side=tk.LEFT, padx=(0, 6))
 
     def set_count_hint(self, suffix: str):
         self._count_suffix = suffix or ""

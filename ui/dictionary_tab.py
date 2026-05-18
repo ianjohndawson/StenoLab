@@ -274,7 +274,7 @@ class DictionaryTab(ttk.Frame):
     # ------------------------------------------------------------------
     def _build_dictionary_header(self):
         self.header_frame = ttk.Frame(self, style="DictionaryHeader.TFrame")
-        self.header_frame.pack(fill=tk.X, pady=(0, 8))
+        self.header_frame.pack(fill=tk.X, pady=(0, 4))
 
         self.header_accent = ttk.Frame(
             self.header_frame, width=4, style="HeaderAccent.TFrame"
@@ -282,26 +282,23 @@ class DictionaryTab(ttk.Frame):
         self.header_accent.pack(side=tk.LEFT, fill=tk.Y)
 
         body = ttk.Frame(self.header_frame)
-        body.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12, pady=9)
-
-        title_row = ttk.Frame(body)
-        title_row.pack(fill=tk.X)
+        body.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10, pady=5)
 
         self.header_title_var = tk.StringVar(value=self.name)
         self.header_title = ttk.Label(
-            title_row,
+            body,
             textvariable=self.header_title_var,
             style="HeaderTitle.TLabel",
         )
-        self.header_title.pack(side=tk.LEFT)
+        self.header_title.pack(side=tk.LEFT, padx=(0, 8))
 
         self.header_state_var = tk.StringVar(value="Saved")
         self.header_state = ttk.Label(
-            title_row,
+            body,
             textvariable=self.header_state_var,
             style="HeaderSuccess.TLabel",
         )
-        self.header_state.pack(side=tk.RIGHT, padx=(8, 0))
+        self.header_state.pack(side=tk.LEFT, padx=(0, 8))
 
         self.header_path_var = tk.StringVar(value="")
         self.header_path = ttk.Label(
@@ -309,10 +306,7 @@ class DictionaryTab(ttk.Frame):
             textvariable=self.header_path_var,
             style="HeaderSubtle.TLabel",
         )
-        self.header_path.pack(fill=tk.X, pady=(2, 7))
-
-        metrics = ttk.Frame(body)
-        metrics.pack(fill=tk.X)
+        self.header_path.pack(side=tk.LEFT, padx=(0, 10), fill=tk.X, expand=True)
 
         self.header_entries_var = tk.StringVar(value="0 entries")
         self.header_conflicts_var = tk.StringVar(value="0 conflicts")
@@ -320,16 +314,16 @@ class DictionaryTab(ttk.Frame):
         self.header_frequency_var = tk.StringVar(value="0% frequency")
 
         self.header_entries = ttk.Label(
-            metrics, textvariable=self.header_entries_var, style="HeaderInfo.TLabel"
+            body, textvariable=self.header_entries_var, style="HeaderInfo.TLabel"
         )
         self.header_conflicts = ttk.Label(
-            metrics, textvariable=self.header_conflicts_var, style="HeaderChip.TLabel"
+            body, textvariable=self.header_conflicts_var, style="HeaderChip.TLabel"
         )
         self.header_briefs = ttk.Label(
-            metrics, textvariable=self.header_briefs_var, style="HeaderChip.TLabel"
+            body, textvariable=self.header_briefs_var, style="HeaderChip.TLabel"
         )
         self.header_frequency = ttk.Label(
-            metrics, textvariable=self.header_frequency_var, style="HeaderChip.TLabel"
+            body, textvariable=self.header_frequency_var, style="HeaderChip.TLabel"
         )
 
         for widget in (
@@ -338,10 +332,10 @@ class DictionaryTab(ttk.Frame):
             self.header_briefs,
             self.header_frequency,
         ):
-            widget.pack(side=tk.LEFT, padx=(0, 7), pady=(0, 1))
+            widget.pack(side=tk.LEFT, padx=(0, 6))
 
         self.focus_check = ttk.Checkbutton(
-            metrics,
+            body,
             text="Focus mode",
             variable=self.focus_mode,
             command=self._toggle_focus_mode,
@@ -423,13 +417,13 @@ class DictionaryTab(ttk.Frame):
         self.filter_label.pack(side=tk.LEFT)
         self.filter_label.bind("<Button-1>", self._toggle_filters)
 
+        self.active_filter_frame = ttk.Frame(self.filter_header)
+        self.active_filter_frame.pack(side=tk.LEFT, padx=(6, 0))
+
         self.count_label = ttk.Label(
             self.filter_header, text="", foreground=C["fg_dim"], padding=(0, 6)
         )
         self.count_label.pack(side=tk.RIGHT, padx=12)
-
-        self.active_filter_frame = ttk.Frame(self.filter_container)
-        self.active_filter_frame.pack(fill=tk.X, padx=6, pady=(2, 0))
 
         # Content (two rows of checkboxes)
         self.filter_content = ttk.Frame(self.filter_container)
@@ -1401,7 +1395,7 @@ class DictionaryTab(ttk.Frame):
             if len(comments) > max_chars:
                 comments = comments[:max_chars - 3] + "..."
 
-            B = "Brief" if meta.get("brief", False) else ""
+            B = "✓" if meta.get("brief", False) else ""
             S = steno.count("/") + 1
             W = len(english.split())
             freq = meta.get("frequency", 0)
