@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.coverage
+htmlcov/
+
+.venv/
+venv/
+env/
+.env
+
+build/
+dist/
+*.spec
+*.log
+
+.vscode/
+.cursor/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+StenoLab Data/
+StenoEditor/
