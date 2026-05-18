@@ -223,20 +223,23 @@ class FindReplaceDialog(tk.Toplevel):
             return
 
         item = selected[0]
-        row  = dict(zip(tab.column_order, tab.tree.item(item, "values")))
-        steno, english = row["steno"], row["english"]
+        entry = tab.entry_for_item(item) if hasattr(tab, "entry_for_item") else None
+        if entry is None:
+            return
+        steno = entry["steno"]
+        english = entry.get("english") or ""
         modified = False
 
         if field in ("Translation", "Both"):
             new_english = pattern.sub(replace_text, english)
             if new_english != english:
-                self._update_field(tab, steno, english, "english", new_english)
+                self._update_field(tab, entry, "english", new_english)
                 modified = True
 
         if field in ("Steno", "Both"):
             new_steno = pattern.sub(replace_text, steno)
             if new_steno != steno:
-                self._rename_steno(tab, steno, new_steno, english)
+                self._rename_steno(tab, entry, new_steno)
                 modified = True
 
         if modified:
@@ -341,7 +344,7 @@ class FindReplaceDialog(tk.Toplevel):
                 old = entry["steno"]
                 new = pattern.sub(replace_text, old)
                 if new != old:
-                    self._rename_steno(tab, old, new, entry.get("english") or "")
+                    self._rename_steno(tab, entry, new)
                     count += 1
 
         if count:
@@ -365,24 +368,20 @@ class FindReplaceDialog(tk.Toplevel):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _update_field(self, tab, steno, english, field, new_value):
+    def _update_field(self, tab, entry, field, new_value):
         today = date.today().strftime("%Y-%m-%d")
-        for entry in tab.entries:
-            if entry["steno"] == steno and (entry.get("english") or "") == english:
-                entry[field]      = new_value
-                entry["modified"] = today
-                if tab.metadata and steno in tab.metadata:
-                    tab.metadata[steno]["modified"] = today
-                break
+        steno = entry["steno"]
+        entry[field]      = new_value
+        entry["modified"] = today
+        if tab.metadata and steno in tab.metadata:
+            tab.metadata[steno]["modified"] = today
 
-    def _rename_steno(self, tab, old_steno, new_steno, english):
+    def _rename_steno(self, tab, entry, new_steno):
         """Rename a steno key: update the entry, metadata, bookmarks, conflicts."""
         today = date.today().strftime("%Y-%m-%d")
-        for entry in tab.entries:
-            if entry["steno"] == old_steno and (entry.get("english") or "") == english:
-                entry["steno"]    = new_steno
-                entry["modified"] = today
-                break
+        old_steno = entry["steno"]
+        entry["steno"]    = new_steno
+        entry["modified"] = today
         if tab.metadata and old_steno in tab.metadata:
             m = tab.metadata.pop(old_steno)
             m["modified"] = today

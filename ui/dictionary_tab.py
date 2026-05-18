@@ -107,6 +107,8 @@ class DictionaryTab(ttk.Frame):
         self.bookmarked_stenos: set = set()
         self.conflict_stenos:   set = set()
         self._page: int = 0   # current page for paginated treeview display
+        self._entry_by_iid: dict = {}
+        self.search_config = None
 
         # Undo / redo
         self._undo_stack = UndoStack()
@@ -657,15 +659,9 @@ class DictionaryTab(ttk.Frame):
         selected = self.tree.selection()
         if not selected:
             return
-        # Locate the exact entry by matching iid order to filtered_entries
-        children = self.tree.get_children()
-        try:
-            idx = children.index(selected[0])
-        except ValueError:
+        target = self.entry_for_item(selected[0])
+        if target is None:
             return
-        if idx >= len(self.filtered_entries):
-            return
-        target = self.filtered_entries[idx]
         old_steno = target["steno"]
         before = set(self.conflict_stenos)
         target.update(updated_entry)
@@ -679,6 +675,19 @@ class DictionaryTab(ttk.Frame):
         self._apply_filters()
 
     def apply_search(self, config):
+        config = dict(config or {})
+        if config == self.search_config:
+            if callable(getattr(self, "_on_filter_count_changed", None)):
+                search_active = bool(config.get("steno_query") or config.get("text_query"))
+                try:
+                    self._on_filter_count_changed(
+                        len(self.filtered_entries),
+                        len(self.entries),
+                        search_active=search_active,
+                    )
+                except Exception:
+                    pass
+            return
         self.search_config = config
         self._apply_filters()
 
@@ -762,20 +771,9 @@ class DictionaryTab(ttk.Frame):
             if not messagebox.askyesno("Delete", f"Delete {label}?"):
                 return
 
-        # Identify entries by Python object identity rather than by
-        # (steno, english) pair.  When two entries genuinely share the
-        # same steno+english (a literal duplicate), pair-based identity
-        # can't tell which row the user actually clicked.  iid order
-        # matches filtered_entries order at insert time, so we walk the
-        # tree once to map iid -> entry, then build a set of entries
-        # to delete by id().
-        children = self.tree.get_children()
-        iid_to_entry = {iid: entry
-                        for iid, entry in zip(children, self.filtered_entries)}
-
         targets = set()
         for iid in selected:
-            entry = iid_to_entry.get(iid)
+            entry = self.entry_for_item(iid)
             if entry is not None:
                 targets.add(id(entry))
 
@@ -984,10 +982,8 @@ class DictionaryTab(ttk.Frame):
 
     def _copy_selected_to(self, target_tab):
         payload = []
-        children = self.tree.get_children()
-        iid_to_entry = {iid: entry for iid, entry in zip(children, self.filtered_entries)}
         for item in self.tree.selection():
-            entry = iid_to_entry.get(item)
+            entry = self.entry_for_item(item)
             if entry:
                 payload.append((entry, (self.metadata or {}).get(entry["steno"], {})))
         target_tab.receive_entries(payload)
@@ -1004,6 +1000,10 @@ class DictionaryTab(ttk.Frame):
             dict(zip(self.column_order, self.tree.item(i, "values")))["steno"]
             for i in items
         }
+
+    def entry_for_item(self, item):
+        """Return the backing entry object for a visible Treeview item."""
+        return self._entry_by_iid.get(item)
 
     # ------------------------------------------------------------------
     # Selection handlers
@@ -1285,6 +1285,7 @@ class DictionaryTab(ttk.Frame):
         """
         prev_selected = self._stenos_for_items(self.tree.selection())
         self.tree.delete(*self.tree.get_children())
+        self._entry_by_iid = {}
         to_reselect = []
 
         # Hoist out everything that doesn't change row-to-row
@@ -1342,6 +1343,7 @@ class DictionaryTab(ttk.Frame):
             elif is_cx:           tags.append("conflict")
 
             iid = self.tree.insert("", tk.END, values=row, tags=tags)
+            self._entry_by_iid[iid] = entry
             if steno in prev_selected:
                 to_reselect.append(iid)
 
@@ -1465,15 +1467,11 @@ class DictionaryTab(ttk.Frame):
         selected = self.tree.selection()
         if not selected:
             return
-        row    = dict(zip(self.column_order, self.tree.item(selected[0], "values")))
-        steno  = row["steno"]
-        english = row["english"]
-        entry  = next(
-            (e for e in self.entries if e["steno"] == steno and e["english"] == english),
-            None,
-        )
+        entry = self.entry_for_item(selected[0])
         if entry is None:
             return
+        steno = entry["steno"]
+        english = entry.get("english") or ""
 
         dlg = tk.Toplevel(self)
         dlg.title("Entry Details")
@@ -1524,14 +1522,10 @@ class DictionaryTab(ttk.Frame):
         selected = self.tree.selection()
         if not selected:
             return
-        children = self.tree.get_children()
-        try:
-            idx = children.index(selected[0])
-        except ValueError:
+        entry = self.entry_for_item(selected[0])
+        if entry is None:
             return
-        if idx >= len(self.filtered_entries):
-            return
-        self._open_edit_dialog(self.filtered_entries[idx])
+        self._open_edit_dialog(entry)
 
     def _open_add_dialog(self):
         self._open_edit_dialog({
