@@ -6,7 +6,6 @@ from datetime import datetime
 # UI components
 from ui.theme import apply_steno_theme, apply_theme, set_titlebar_dark, get_mode
 from ui.toolbar import Toolbar
-from ui.searchbar import SearchBar
 from ui.dictionary_tab import DictionaryTab
 from ui.statusbar import StatusBar
 from ui.open_dictionary_dialog import ask_open_dictionary
@@ -91,6 +90,7 @@ class StenoApp(tk.Tk):
         # Reopen tabs from previous session
         self._restore_open_tabs()
         self._refresh_content_state(show_home=not self.tabs)
+        self._refresh_undo_buttons()
 
         # Re-apply title bar after the window is mapped, so DWM has a real HWND
         # to operate on. This makes the dark title bar reliably stick on Windows.
@@ -256,27 +256,21 @@ class StenoApp(tk.Tk):
                 "find":      self._open_find_replace,
                 "bookmarks": self._toggle_bookmark,
                 "open":      self._open_dictionary,
+                "save":      self._save_current_dictionary,
                 "undo":      self._undo,
                 "redo":      self._redo,
             }
         )
         self.toolbar.pack(fill=tk.X, padx=10, pady=(10, 0))
 
-        self.searchbar = SearchBar(
-            self,
-            on_search=self._on_search_update,
-            on_collapse_changed=self._on_search_collapse_changed,
-            initially_collapsed=self._search_collapsed,
-        )
-        self.searchbar.pack(fill=tk.X, padx=10, pady=10)
-
         self.content_frame = ttk.Frame(self, style="AppShell.TFrame")
-        self.content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        self.content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         self.home_frame = self._build_home_screen(self.content_frame)
 
         self.notebook = ttk.Notebook(self.content_frame)
         self.notebook.bind("<Button-3>", self._on_tab_right_click)
+        self.notebook.bind("<Button-2>", self._on_tab_middle_click)
         self.notebook.bind("<ButtonPress-1>", self._on_tab_drag_start, add="+")
         self.notebook.bind("<B1-Motion>", self._on_tab_drag_motion, add="+")
         self.notebook.bind("<ButtonRelease-1>", self._on_tab_drag_end, add="+")
@@ -290,26 +284,29 @@ class StenoApp(tk.Tk):
     def _build_home_screen(self, parent):
         frame = ttk.Frame(parent, style="AppShell.TFrame")
 
-        card = ttk.Frame(frame, style="Card.TFrame", padding=28)
-        card.place(relx=0.5, rely=0.46, anchor="center", relwidth=0.72)
+        card = ttk.Frame(frame, style="Card.TFrame", padding=32)
+        card.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.7)
 
         ttk.Label(
             card,
-            text="StenoLab",
+            text="Welcome to StenoLab",
             style="CardTitle.TLabel",
         ).pack(anchor="w")
         ttk.Label(
             card,
-            text="Open a dictionary to search, annotate, back up, and tune your outlines.",
+            text=(
+                "Open a Plover-style JSON dictionary to search, annotate, "
+                "back up, and tune your steno outlines."
+            ),
             style="CardSubtitle.TLabel",
             wraplength=680,
-        ).pack(anchor="w", pady=(4, 18))
+        ).pack(anchor="w", pady=(6, 22))
 
-        actions = ttk.Frame(card, style="ToolbarGroup.TFrame")
+        actions = ttk.Frame(card, style="CardActions.TFrame")
         actions.pack(fill=tk.X)
         ttk.Button(
             actions,
-            text="Open Dictionary...",
+            text="📂  Open Dictionary...",
             style="Primary.TButton",
             command=self._open_dictionary,
         ).pack(side=tk.LEFT)
@@ -319,12 +316,18 @@ class StenoApp(tk.Tk):
             style="Secondary.TButton",
             command=self._restore_backup,
         ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Label(
+            actions,
+            text="Tip: Ctrl+O opens, Ctrl+F finds, Ctrl+S saves.",
+            style="CardSubtitle.TLabel",
+        ).pack(side=tk.RIGHT)
 
-        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=18)
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=22)
 
-        recent_title = ttk.Label(card, text="Recent Dictionaries", style="Card.TLabel")
+        recent_title = ttk.Label(card, text="Recent Dictionaries",
+                                 style="CardSectionTitle.TLabel")
         recent_title.pack(anchor="w")
-        self.home_recent_frame = ttk.Frame(card, style="ToolbarGroup.TFrame")
+        self.home_recent_frame = ttk.Frame(card, style="CardActions.TFrame")
         self.home_recent_frame.pack(fill=tk.X, pady=(8, 0))
         self._refresh_home_recent()
 
@@ -348,23 +351,34 @@ class StenoApp(tk.Tk):
         if not paths:
             ttk.Label(
                 frame,
-                text="No recent dictionaries yet.",
+                text="No recent dictionaries yet. Open one to get started.",
                 style="CardSubtitle.TLabel",
             ).pack(anchor="w")
             return
         for path in paths:
-            row = ttk.Frame(frame, style="ToolbarGroup.TFrame")
+            row = ttk.Frame(frame, style="CardActions.TFrame")
             row.pack(fill=tk.X, pady=3)
-            ttk.Label(
+
+            name_label = ttk.Label(
                 row,
                 text=os.path.basename(path),
-                style="Card.TLabel",
-            ).pack(side=tk.LEFT)
-            ttk.Label(
+                style="CardItem.TLabel",
+                cursor="hand2",
+            )
+            name_label.pack(side=tk.LEFT)
+            dir_label = ttk.Label(
                 row,
                 text=os.path.dirname(path),
                 style="CardSubtitle.TLabel",
-            ).pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
+                cursor="hand2",
+            )
+            dir_label.pack(side=tk.LEFT, padx=(10, 0), fill=tk.X, expand=True)
+
+            for clickable in (name_label, dir_label):
+                clickable.bind(
+                    "<Button-1>",
+                    lambda _e, p=path: self._open_dictionary_path(p),
+                )
             ttk.Button(
                 row,
                 text="Open",
@@ -401,14 +415,6 @@ class StenoApp(tk.Tk):
                 entries=len(tab.entries),
                 active=tab.name,
             )
-            # Re-apply the search to the now-active tab so its filtered
-            # state matches the search bar.  We don't touch any other tab:
-            # they're not visible right now, and re-running their filter
-            # pipeline on tab change adds visible lag with large dictionaries.
-            try:
-                tab.apply_search(self.searchbar.get_config())
-            except Exception:
-                pass
         self._refresh_undo_buttons()
 
     def _get_active_tab(self):
@@ -459,6 +465,23 @@ class StenoApp(tk.Tk):
     # ------------------------------------------------------------
     # Right-click on tab heading
     # ------------------------------------------------------------
+    def _on_tab_middle_click(self, event):
+        """Middle-click on a tab heading closes that tab (after the usual
+        unsaved-changes prompt)."""
+        try:
+            element = self.notebook.identify(event.x, event.y)
+        except tk.TclError:
+            return
+        if not element:
+            return
+        try:
+            tab_index = self.notebook.index(f"@{event.x},{event.y}")
+            tab_id = self.notebook.tabs()[tab_index]
+        except (IndexError, tk.TclError):
+            return
+        self.notebook.select(tab_id)
+        self._close_current_dictionary()
+
     def _on_tab_right_click(self, event):
         """
         Show a context menu when the user right-clicks a tab heading.
@@ -510,11 +533,40 @@ class StenoApp(tk.Tk):
         menu.add_command(label="Restore Backup...", command=self._restore_backup)
         menu.add_separator()
         menu.add_command(label="Close", command=self._close_current_dictionary)
+        other_count = max(0, len(self.notebook.tabs()) - 1)
+        menu.add_command(
+            label=f"Close Other Tabs ({other_count})",
+            command=lambda w=tab_widget: self._close_other_tabs(w),
+            state=("normal" if other_count else "disabled"),
+        )
 
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _close_other_tabs(self, keep_widget):
+        """Close every tab except ``keep_widget``, prompting for unsaved changes."""
+        others = []
+        for tab_id in list(self.notebook.tabs()):
+            try:
+                w = self.notebook.nametowidget(tab_id)
+            except tk.TclError:
+                continue
+            if w is not keep_widget:
+                others.append(w)
+        if not others:
+            return
+        for widget in others:
+            try:
+                self.notebook.select(widget)
+            except tk.TclError:
+                continue
+            self._close_current_dictionary()
+        try:
+            self.notebook.select(keep_widget)
+        except tk.TclError:
+            pass
 
     def _open_containing_folder(self, tab_widget):
         """Reveal the tab's dictionary file in the system file browser."""
@@ -645,18 +697,25 @@ class StenoApp(tk.Tk):
             self.notebook,
             name=name,
             on_entries_changed=self._on_entries_changed,
-            on_filter_count_changed=self._on_filter_count_changed,
+            on_search_broadcast=self._broadcast_search_to_siblings,
+            on_search_collapse_changed=self._on_search_collapse_changed,
+            initial_search_collapsed=self._search_collapsed,
         )
 
         tab.dict_path = path
         tab.load_entries(entries, metadata)
 
-        # Apply the current search config so the new tab opens already filtered
-        # consistently with the others.
-        try:
-            tab.apply_search(self.searchbar.get_config())
-        except Exception:
-            pass
+        # If any open tab has scope='All Dictionaries' with an active query,
+        # mirror it onto this new tab so the cross-dictionary view stays
+        # consistent when the user opens another file.  That call also runs
+        # _apply_filters as a side effect.  If no broadcast source exists we
+        # still need an initial filter pass — load_entries deliberately skips
+        # it on the assumption that the caller follows up with a search.
+        if not self._sync_new_tab_with_broadcast_source(tab):
+            try:
+                tab.apply_search(tab.searchbar.get_config())
+            except Exception:
+                pass
 
         self.notebook.add(tab, text=name)
         self.tabs[tab_key] = tab
@@ -792,15 +851,17 @@ class StenoApp(tk.Tk):
             self._refresh_undo_buttons()
 
     def _refresh_undo_buttons(self):
-        """Sync the toolbar undo/redo button states with the active tab's stack."""
+        """Sync the toolbar undo/redo and Save button states with the active tab."""
         tab = self._get_active_tab()
         if tab and hasattr(tab, "_undo_stack"):
             self.toolbar.refresh_undo_redo(
                 can_undo=tab._undo_stack.can_undo,
                 can_redo=tab._undo_stack.can_redo,
             )
+            self.toolbar.set_save_enabled(bool(getattr(tab, "_json_dirty", False)))
         else:
             self.toolbar.refresh_undo_redo(can_undo=False, can_redo=False)
+            self.toolbar.set_save_enabled(False)
 
     # ------------------------------------------------------------
     # Delete (menu / accelerator route)
@@ -816,6 +877,7 @@ class StenoApp(tk.Tk):
     def _on_entries_changed(self, count):
         self.statusbar.update_status(entries=count)
         self._refresh_unsaved_status()
+        self._refresh_undo_buttons()
 
     def _count_dirty_tabs(self) -> int:
         return sum(1 for t in self.tabs.values() if getattr(t, "_json_dirty", False))
@@ -876,27 +938,6 @@ class StenoApp(tk.Tk):
         if self._find_replace_dlg and self._find_replace_dlg.winfo_exists():
             self._find_replace_dlg._find_prev()
         return "break"
-
-    def _clear_active_filters(self):
-        tab = self._get_active_tab()
-        if tab is None:
-            return
-        for attr in (
-            "filter_has_comments", "filter_is_brief", "filter_bookmarked",
-            "filter_capitalised", "filter_has_digits", "filter_has_written_numbers",
-            "filter_has_punctuation", "filter_conflicts",
-            "filter_has_frequency", "filter_top_freq",
-        ):
-            var = getattr(tab, attr, None)
-            if var is not None:
-                try:
-                    var.set(False)
-                except Exception:
-                    pass
-        try:
-            tab._apply_filters()
-        except Exception:
-            pass
 
     # ------------------------------------------------------------
     # Tab persistence
@@ -979,86 +1020,53 @@ class StenoApp(tk.Tk):
     # ------------------------------------------------------------
     # Search
     # ------------------------------------------------------------
-    def _on_search_update(self, config):
-        self._apply_search_to_tabs(config)
-
-    def _apply_search_to_tabs(self, config):
+    def _broadcast_search_to_siblings(self, source_tab, config):
         """
-        Route a search config to one or all tabs depending on Scope.
+        Mirror a tab's search query to every other open tab.
 
-        Scope = "Current Dictionary": only the active tab is filtered.
-        Other tabs are left in their existing filtered state — they're not
-        visible, so it doesn't matter what their tree looks like, and
-        running the filter pipeline against them per keystroke is wasted
-        work.  When the user switches tabs, _on_tab_changed re-applies the
-        current search to whichever tab they switched to, so the active
-        tab is always in sync with the search bar.
-
-        Scope = "All Dictionaries": every open tab applies the same search.
-        Cross-tab consistency is the explicit point, so the cost is
-        justified — but it does mean a keystroke can be slow when many
-        large dictionaries are open.  Acceptable tradeoff for the use case.
+        Called when the source tab has scope='All Dictionaries' and its
+        search inputs change.  The receiving tabs adopt the same query
+        without re-broadcasting (their on_search_changed is suppressed
+        during the receive).  Each receiving tab keeps its own scope —
+        only the source tab is in cross-dictionary mode.
         """
         if not self.tabs:
             return
-
-        scope = (config or {}).get("scope", "Current Dictionary")
-
-        if scope == "All Dictionaries":
-            for tab in self.tabs.values():
-                try:
-                    tab.apply_search(config)
-                except Exception:
-                    pass
-        else:
-            active_tab = self._get_active_tab()
-            if active_tab is None:
-                return
+        for tab in self.tabs.values():
+            if tab is source_tab:
+                continue
             try:
-                active_tab.apply_search(config)
+                tab.set_search_quietly(config)
             except Exception:
                 pass
 
+    def _sync_new_tab_with_broadcast_source(self, new_tab) -> bool:
+        """When opening a new tab, inherit any active 'All Dictionaries' query.
+
+        Returns True if a broadcast source was found and mirrored (which also
+        triggers an initial filter pass), False otherwise — so the caller
+        knows whether it still needs to run the initial filter itself.
+        """
+        for tab in self.tabs.values():
+            if tab is new_tab:
+                continue
+            cfg = getattr(tab, "search_config", None) or {}
+            if cfg.get("scope") == "All Dictionaries" and (
+                cfg.get("text_query") or cfg.get("steno_query")
+            ):
+                try:
+                    new_tab.set_search_quietly(cfg)
+                except Exception:
+                    return False
+                return True
+        return False
+
     def _on_search_collapse_changed(self, collapsed: bool):
-        """Persist the search panel collapse state."""
+        """Persist the search-panel collapse state as the default for new tabs."""
         self._search_collapsed = collapsed
         settings = load_settings()
         settings["search_collapsed"] = collapsed
         save_settings(settings)
-
-    def _on_filter_count_changed(self, _showing: int, _total: int, search_active: bool):
-        """
-        Surface a 'no matches' hint on the collapsed search panel.
-
-        Called from every tab that re-runs its filters.  We only listen to the
-        active tab — when scope is 'All Dictionaries' every tab fires this
-        callback, but the hint should reflect what the user is actively looking
-        at, not whichever tab happened to fire last.  The incoming _showing/_total
-        arguments are therefore ignored in favour of a fresh read from the active
-        tab.
-        """
-        active = self._get_active_tab()
-        if active is None:
-            return
-        try:
-            visible = len(active.filtered_entries)
-            total   = len(active.entries)
-        except AttributeError:
-            return
-
-        cfg = self.searchbar.get_config()
-        active_search = bool(cfg.get("steno_query") or cfg.get("text_query"))
-
-        if active_search and visible == 0:
-            self.searchbar.set_count_hint("no matches")
-            self.searchbar.set_no_match_actions([
-                ("Clear search", self.searchbar.clear),
-                ("Search all", lambda: self.searchbar.set_scope("All Dictionaries")),
-                ("Clear filters", self._clear_active_filters),
-            ])
-        else:
-            self.searchbar.set_count_hint("")
-            self.searchbar.set_no_match_actions([])
 
     # ------------------------------------------------------------
     # Type-ahead routing
@@ -1114,12 +1122,15 @@ class StenoApp(tk.Tk):
         if not char or not char.isprintable():
             return None
 
-        # Route: focus Text entry (expanding panel if collapsed) and let the
-        # search bar insert the char at the right moment in the animation.
-        # We must NOT also call .insert() ourselves - that would double-insert
-        # when the panel is already open, and could land before focus settles
-        # when the panel is expanding.
-        self.searchbar.focus_text_entry(append_char=char)
+        # Route: focus the active tab's search Text entry (expanding the
+        # panel if collapsed) and let the search bar insert the char at the
+        # right moment in the animation.  We must NOT also call .insert()
+        # ourselves - that would double-insert when the panel is already
+        # open, and could land before focus settles when expanding.
+        active_tab = self._get_active_tab()
+        if active_tab is None or not hasattr(active_tab, "focus_search_text"):
+            return None
+        active_tab.focus_search_text(append_char=char)
         return "break"
 
     # ------------------------------------------------------------
@@ -1596,7 +1607,10 @@ class StenoApp(tk.Tk):
             entries, metadata, _ = load_dictionary_with_metadata(tab.dict_path)
             tab.load_entries(entries, metadata)
             tab._set_dirty(False)
-            tab.apply_search(self.searchbar.get_config())
+            try:
+                tab.apply_search(tab.searchbar.get_config())
+            except Exception:
+                pass
             self.statusbar.update_status(
                 entries=len(entries),
                 dictionaries=len(self.tabs),

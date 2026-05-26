@@ -200,15 +200,29 @@ def _configure_styles(style: ttk.Style):
     style.configure("CardTitle.TLabel",
                     background=C["bg_card"],
                     foreground=C["fg"],
-                    font=("Segoe UI", 18, "bold"))
+                    font=("Segoe UI", 20, "bold"))
+    style.configure("CardSectionTitle.TLabel",
+                    background=C["bg_card"],
+                    foreground=C["fg"],
+                    font=("Segoe UI", 11, "bold"))
+    style.configure("CardItem.TLabel",
+                    background=C["bg_card"],
+                    foreground=C["accent"],
+                    font=("Segoe UI", 10, "bold"))
     style.configure("CardSubtitle.TLabel",
                     background=C["bg_card"],
                     foreground=C["fg_dim"],
                     font=("Segoe UI", 10))
+    style.configure("CardActions.TFrame",
+                    background=C["bg_card"])
     style.configure("Muted.TLabel",
                     background=C["bg_panel"],
                     foreground=C["fg_dim"],
                     font=("Segoe UI", 9))
+    style.configure("Disclosure.TLabel",
+                    background=C["bg_panel"],
+                    foreground=C["fg"],
+                    font=("Segoe UI", 10, "bold"))
     style.configure("Chip.TLabel",
                     background=C["accent_soft"],
                     foreground=C["accent"],
@@ -236,6 +250,8 @@ def _configure_styles(style: ttk.Style):
                     relief="solid")
     style.configure("ToolbarGroup.TFrame",
                     background=C["bg_card"])
+    style.configure("ToolbarSeparator.TFrame",
+                    background=C["border"])
     style.configure("ToolbarLabel.TLabel",
                     background=C["bg_card"],
                     foreground=C["fg_dim"],
@@ -254,21 +270,26 @@ def _configure_styles(style: ttk.Style):
     style.configure("Primary.TButton",
                     background=C["accent"],
                     foreground="white",
-                    padding=(10, 5),
-                    borderwidth=0)
+                    padding=(12, 6),
+                    borderwidth=0,
+                    font=("Segoe UI", 10))
     style.map("Primary.TButton",
-              background=[("active", C["accent_hover"]), ("disabled", C["bg_raised"])],
+              background=[("active", C["accent_hover"]),
+                          ("pressed", C["accent_hover"]),
+                          ("disabled", C["bg_raised"])],
               foreground=[("disabled", C["fg_dim"])])
 
     style.configure("Secondary.TButton",
-                    background=C["bg_panel"],
-                    foreground=C["fg_dim"],
-                    padding=(9, 5),
+                    background=C["bg_card"],
+                    foreground=C["fg"],
+                    padding=(12, 6),
                     borderwidth=1,
-                    bordercolor=C["border"])
+                    bordercolor=C["border"],
+                    font=("Segoe UI", 10))
     style.map("Secondary.TButton",
-              background=[("active", C["bg_raised"])],
-              foreground=[("active", C["fg"])])
+              background=[("active", C["bg_raised"]),
+                          ("pressed", C["bg_raised"])],
+              foreground=[("disabled", C["fg_dim"])])
 
     style.configure("Link.TButton",
                     background=C["bg_panel"],
@@ -280,12 +301,31 @@ def _configure_styles(style: ttk.Style):
               foreground=[("active", C["accent_hover"]), ("disabled", C["fg_dim"])],
               background=[("active", C["bg_panel"])])
 
+    # Pill / chip button used for active search and filter indicators.
+    # Reads as a soft-tinted capsule with a small "×" remove affordance.
+    style.configure("Chip.TButton",
+                    background=C["accent_soft"],
+                    foreground=C["accent"],
+                    padding=(8, 2),
+                    borderwidth=0,
+                    font=("Segoe UI", 9, "bold"))
+    style.map("Chip.TButton",
+              background=[("active", C["bg_raised"])],
+              foreground=[("active", C["fg"])])
+
     style.configure("StatusBar.TFrame",
                     background=C["bg"],
+                    borderwidth=0)
+    style.configure("StatusBarDivider.TFrame",
+                    background=C["border"],
                     borderwidth=0)
     style.configure("StatusBar.TLabel",
                     background=C["bg"],
                     foreground=C["fg_dim"],
+                    font=("Segoe UI", 9))
+    style.configure("StatusBarDivider.TLabel",
+                    background=C["bg"],
+                    foreground=C["border"],
                     font=("Segoe UI", 9))
 
     style.configure("DictionaryHeader.TFrame",
@@ -293,8 +333,28 @@ def _configure_styles(style: ttk.Style):
                     borderwidth=1,
                     bordercolor=C["border"],
                     relief="solid")
+    style.configure("DictionaryHeaderBody.TFrame",
+                    background=C["bg_panel"])
     style.configure("HeaderAccent.TFrame",
                     background=C["accent"])
+
+    # Unified Search & Filters bar.  Uses bg_panel so child widgets
+    # (checkboxes, entries, the searchbar inputs) sit on the same surface
+    # as the default ttk.Widget styles do, avoiding subtle background
+    # mismatches.  The card feel comes from the border, not the fill.
+    style.configure("UnifiedBar.TFrame",
+                    background=C["bg_panel"],
+                    borderwidth=1,
+                    bordercolor=C["border"],
+                    relief="solid")
+    style.configure("UnifiedBar.TLabel",
+                    background=C["bg_panel"],
+                    foreground=C["fg"])
+    style.configure("WarningBadge.TLabel",
+                    background=C["warning_soft"],
+                    foreground=C["warning"],
+                    padding=(8, 2),
+                    font=("Segoe UI", 9, "bold"))
     style.configure("HeaderTitle.TLabel",
                     background=C["bg_panel"],
                     foreground=C["fg"],
@@ -329,18 +389,42 @@ def _configure_styles(style: ttk.Style):
                     padding=(8, 4),
                     font=("Segoe UI", 9, "bold"))
 
-    # Toolbar icon button
+    # Generic icon button (used for compact icon-only buttons elsewhere).
     style.configure("Icon.TButton",
                     background=C["bg_card"],
                     foreground=C["fg"],
                     font=("Segoe UI Symbol", 13),
-                    padding=(8, 5),
+                    padding=(9, 6),
                     width=2,
-                    borderwidth=1,
-                    bordercolor=C["border"])
+                    borderwidth=0)
     style.map("Icon.TButton",
-              background=[("active", C["accent_hover"])],
-              foreground=[("active", "white")])
+              background=[("active", C["bg_raised"]),
+                          ("pressed", C["accent"])],
+              foreground=[("active", C["fg"]),
+                          ("pressed", "white"),
+                          ("disabled", C["fg_dim"])])
+
+    # Toolbar icon button — square, no border, very visible hover.
+    # Hover paints the cell in accent_soft so the user can immediately see
+    # which button is under the cursor.  Pressed/selected uses the accent
+    # itself with a white glyph.
+    style.configure("ToolbarIcon.TButton",
+                    background=C["bg_card"],
+                    foreground=C["fg"],
+                    font=("Segoe UI Symbol", 14),
+                    padding=(10, 7),
+                    width=2,
+                    borderwidth=0,
+                    relief="flat",
+                    focusthickness=0)
+    style.map("ToolbarIcon.TButton",
+              background=[("disabled", C["bg_card"]),
+                          ("pressed",  C["accent"]),
+                          ("active",   C["accent_soft"])],
+              foreground=[("disabled", C["fg_dim"]),
+                          ("pressed",  "white"),
+                          ("active",   C["accent"])],
+              relief=[("pressed", "flat"), ("active", "flat")])
 
     style.configure("TEntry",
                     fieldbackground=C["bg_input"],
@@ -410,19 +494,22 @@ def _configure_styles(style: ttk.Style):
     style.configure("TNotebook.Tab",
                     background=C["bg_raised"],
                     foreground=C["fg_dim"],
-                    padding=[12, 6])
+                    padding=[14, 7],
+                    borderwidth=0)
     style.map("TNotebook.Tab",
-              background=[("selected", C["accent"])],
-              foreground=[("selected", "white")],
+              background=[("selected", C["accent"]),
+                          ("active",   C["bg_card"])],
+              foreground=[("selected", "white"),
+                          ("active",   C["fg"])],
               # Selected tab gets larger padding - this works regardless of
               # whether the platform respects 'expand' on Notebook.Tab.
-              padding=[("selected", [14, 8])])
+              padding=[("selected", [16, 9])])
 
     style.configure("Treeview",
                     background=C["bg_panel"],
                     fieldbackground=C["bg_panel"],
                     foreground=C["fg"],
-                    rowheight=27,
+                    rowheight=29,
                     borderwidth=0)
     style.map("Treeview",
               background=[("selected", C["accent"])],
@@ -430,8 +517,12 @@ def _configure_styles(style: ttk.Style):
     style.configure("Treeview.Heading",
                     background=C["bg_raised"],
                     foreground=C["accent"],
-                    padding=(6, 5),
+                    padding=(8, 7),
+                    relief="flat",
+                    borderwidth=0,
                     font=("Segoe UI", 10, "bold"))
+    style.map("Treeview.Heading",
+              background=[("active", C["bg_card"])])
 
     style.configure("TSeparator",
                     background=C["border"])

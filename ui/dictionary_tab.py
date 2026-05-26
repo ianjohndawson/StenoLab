@@ -10,7 +10,9 @@ from datetime import datetime
 from logic.settings_store import load_settings, save_settings
 from logic.metadata_store import save_metadata, ensure_metadata
 from logic.undo_stack import UndoStack
+from ui.searchbar import SearchBar
 from ui.theme import C
+from ui.tooltip import Tooltip, TreeHeadingTooltip
 
 
 MAX_COMMENT_CHARS  = 40
@@ -70,6 +72,20 @@ class DictionaryTab(ttk.Frame):
         "comments": "Comments",
     }
 
+    # Hover help for the cryptic single-letter columns.  Shown as a tooltip
+    # whenever the user pauses over the column heading.
+    COLUMN_TOOLTIPS = {
+        "steno":    "Steno outline (key)",
+        "english":  "Translation / output text",
+        "S":        "Stroke count (number of '/' separated strokes)",
+        "W":        "Word count in the translation",
+        "B":        "Brief: ✓ if this outline is marked as a brief",
+        "F":        "Frequency score for this word (higher = more common)",
+        "added":    "Date this entry was first added",
+        "modified": "Date this entry was last modified",
+        "comments": "Notes you've added to this entry",
+    }
+
     DEFAULT_WIDTHS = {
         "steno":    160,
         "english":  340,
@@ -90,11 +106,17 @@ class DictionaryTab(ttk.Frame):
 
     def __init__(self, parent, name="Dictionary",
                  on_entries_changed=None,
-                 on_filter_count_changed=None):
+                 on_filter_count_changed=None,
+                 on_search_broadcast=None,
+                 on_search_collapse_changed=None,
+                 initial_search_collapsed=True):
         super().__init__(parent)
         self.name = name
         self.on_entries_changed   = on_entries_changed
         self._on_filter_count_changed = on_filter_count_changed
+        self._on_search_broadcast = on_search_broadcast
+        self._on_search_collapse_changed = on_search_collapse_changed
+        self._initial_search_collapsed = bool(initial_search_collapsed)
 
         # Data
         self.entries          = []
@@ -143,13 +165,18 @@ class DictionaryTab(ttk.Frame):
         # Build the active column order, inserting F when the toggle is on
         self.column_order = self._make_column_order(show_freq, self.focus_mode.get())
 
-        # Filter panel state
-        self.filters_expanded      = False
-        self.filter_content_height = 0
+        # Unified Search & Filters bar state.  Default collapsed so the
+        # table gets maximum vertical space; the user can expand it when
+        # they need to refine results.
+        self.unified_expanded      = not bool(initial_search_collapsed)
+        self.unified_content_height = 0
 
-        # Build
-        self._build_dictionary_header()
-        self._build_filter_panel()
+        self.search_config = {}
+
+        # Build — note the dictionary info bar is no longer drawn as a
+        # permanent block above the table.  Its information lives in the
+        # right-hand cluster of the unified bar (entry count + ⓘ popover).
+        self._build_search_filter_panel()
         self._build_tree()
         self._sort_by("english", remember=False)
         self.bind("<<DictionaryTabActivated>>", self._on_activated)
@@ -236,7 +263,9 @@ class DictionaryTab(ttk.Frame):
         self._json_dirty = dirty
         try:
             nb    = self.nametowidget(self.winfo_parent())
-            title = self.name + (" *" if dirty else "")
+            # A leading bullet reads as "modified" more clearly than a
+            # trailing asterisk and is the convention most editors use.
+            title = ("● " if dirty else "") + self.name
             nb.tab(self, text=title)
         except Exception:
             pass
@@ -270,82 +299,15 @@ class DictionaryTab(ttk.Frame):
             self.tree.item(item, tags=tags)
 
     # ------------------------------------------------------------------
-    # Dictionary header
+    # Dictionary info (no longer a permanent header — info lives in the
+    # right-hand cluster of the unified Search & Filters bar and the
+    # popover that opens from the ⓘ chip).
     # ------------------------------------------------------------------
-    def _build_dictionary_header(self):
-        self.header_frame = ttk.Frame(self, style="DictionaryHeader.TFrame")
-        self.header_frame.pack(fill=tk.X, pady=(0, 4))
-
-        self.header_accent = ttk.Frame(
-            self.header_frame, width=4, style="HeaderAccent.TFrame"
-        )
-        self.header_accent.pack(side=tk.LEFT, fill=tk.Y)
-
-        body = ttk.Frame(self.header_frame)
-        body.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10, pady=5)
-
-        self.header_title_var = tk.StringVar(value=self.name)
-        self.header_title = ttk.Label(
-            body,
-            textvariable=self.header_title_var,
-            style="HeaderTitle.TLabel",
-        )
-        self.header_title.pack(side=tk.LEFT, padx=(0, 8))
-
-        self.header_state_var = tk.StringVar(value="Saved")
-        self.header_state = ttk.Label(
-            body,
-            textvariable=self.header_state_var,
-            style="HeaderSuccess.TLabel",
-        )
-        self.header_state.pack(side=tk.LEFT, padx=(0, 8))
-
-        self.header_path_var = tk.StringVar(value="")
-        self.header_path = ttk.Label(
-            body,
-            textvariable=self.header_path_var,
-            style="HeaderSubtle.TLabel",
-        )
-        self.header_path.pack(side=tk.LEFT, padx=(0, 10), fill=tk.X, expand=True)
-
-        self.header_entries_var = tk.StringVar(value="0 entries")
-        self.header_conflicts_var = tk.StringVar(value="0 conflicts")
-        self.header_briefs_var = tk.StringVar(value="0 briefs")
-        self.header_frequency_var = tk.StringVar(value="0% frequency")
-
-        self.header_entries = ttk.Label(
-            body, textvariable=self.header_entries_var, style="HeaderInfo.TLabel"
-        )
-        self.header_conflicts = ttk.Label(
-            body, textvariable=self.header_conflicts_var, style="HeaderChip.TLabel"
-        )
-        self.header_briefs = ttk.Label(
-            body, textvariable=self.header_briefs_var, style="HeaderChip.TLabel"
-        )
-        self.header_frequency = ttk.Label(
-            body, textvariable=self.header_frequency_var, style="HeaderChip.TLabel"
-        )
-
-        for widget in (
-            self.header_entries,
-            self.header_conflicts,
-            self.header_briefs,
-            self.header_frequency,
-        ):
-            widget.pack(side=tk.LEFT, padx=(0, 6))
-
-        self.focus_check = ttk.Checkbutton(
-            body,
-            text="Focus mode",
-            variable=self.focus_mode,
-            command=self._toggle_focus_mode,
-        )
-        self.focus_check.pack(side=tk.RIGHT, padx=(8, 0))
-
-        self._refresh_dictionary_header()
-
     def _refresh_dictionary_header(self):
-        if not hasattr(self, "header_title_var"):
+        """Refresh the unified bar's entry-count chip and cached info
+        strings.  Kept as ``_refresh_dictionary_header`` because dozens of
+        callers reach it from outside this file."""
+        if not hasattr(self, "entry_count_var"):
             return
 
         total = len(self.entries)
@@ -361,32 +323,53 @@ class DictionaryTab(ttk.Frame):
         )
         freq_pct = round((freq_count / total) * 100) if total else 0
 
-        self.header_title_var.set(self.name or "Dictionary")
-        self.header_path_var.set(self._short_header_path(self.dict_path))
-        self.header_entries_var.set(f"{total:,} entr{'y' if total == 1 else 'ies'}")
-        self.header_conflicts_var.set(
-            f"{conflict_count:,} conflict{'s' if conflict_count != 1 else ''}"
-        )
-        self.header_briefs_var.set(
-            f"{brief_count:,} brief{'s' if brief_count != 1 else ''}"
-        )
-        self.header_frequency_var.set(f"{freq_pct}% frequency matched")
+        # Cache fresh values so the popover and tooltip pull live data.
+        self._info_total = total
+        self._info_conflicts = conflict_count
+        self._info_briefs = brief_count
+        self._info_freq_pct = freq_pct
 
-        if self._json_dirty:
-            self.header_state_var.set("Unsaved")
-            self.header_state.configure(style="HeaderWarning.TLabel")
-        else:
-            self.header_state_var.set("Saved")
-            self.header_state.configure(style="HeaderSuccess.TLabel")
+        # The entry-count chip is owned by _apply_filters, which knows
+        # both the filtered ("X of Y") and unfiltered ("N entries") forms.
+        # Only seed it here if the filter hasn't yet had a chance to run.
+        if not (self.entry_count_var.get() or "").strip():
+            self.entry_count_var.set(
+                f"{total:,} entr{'y' if total == 1 else 'ies'}"
+            )
 
-        if self.focus_mode.get():
-            self.header_state_var.set(self.header_state_var.get() + " · Focus")
+        # Conflict chip - shown only when there are actual conflicts; uses
+        # the danger style so it stands out.
+        if hasattr(self, "conflict_chip"):
+            if conflict_count:
+                text = f"{conflict_count:,} conflict{'s' if conflict_count != 1 else ''}"
+                self.conflict_chip.configure(text=text, style="HeaderDanger.TLabel")
+                if not self.conflict_chip.winfo_ismapped():
+                    self.conflict_chip.pack(side=tk.LEFT, padx=(0, 6),
+                                            before=self.info_btn)
+            else:
+                if self.conflict_chip.winfo_ismapped():
+                    self.conflict_chip.pack_forget()
 
-        self.header_conflicts.configure(
-            style="HeaderDanger.TLabel" if conflict_count else "HeaderChip.TLabel"
-        )
-        self.header_frequency.configure(
-            style="HeaderSuccess.TLabel" if freq_pct >= 75 else "HeaderChip.TLabel"
+        # Saved / unsaved state chip
+        if hasattr(self, "saved_chip"):
+            if self._json_dirty:
+                self.saved_chip.configure(text="Unsaved", style="HeaderWarning.TLabel")
+            else:
+                self.saved_chip.configure(text="Saved", style="HeaderSuccess.TLabel")
+
+        # Tooltip on the count chip shows path + stats
+        if hasattr(self, "_count_tooltip") and self._count_tooltip is not None:
+            self._count_tooltip.update_text(self._info_tooltip_text())
+
+    def _info_tooltip_text(self) -> str:
+        path = self.dict_path or "Unsaved dictionary"
+        return (
+            f"{path}\n\n"
+            f"{self._info_total:,} entries\n"
+            f"{self._info_briefs:,} briefs\n"
+            f"{self._info_conflicts:,} conflicts\n"
+            f"{self._info_freq_pct}% frequency matched\n\n"
+            f"Click for details"
         )
 
     def _short_header_path(self, path: str | None) -> str:
@@ -401,37 +384,121 @@ class DictionaryTab(ttk.Frame):
             return os.path.join(drive + os.sep, parts[0], "...", parts[-1], filename)
         return os.path.join(drive + os.sep, "...", filename)
 
+    def _copy_path_to_clipboard(self, _event=None):
+        """Clicking the header path copies the full file path to the clipboard."""
+        path = self.dict_path or ""
+        if not path:
+            return
+        try:
+            root = self.winfo_toplevel()
+            root.clipboard_clear()
+            root.clipboard_append(path)
+        except tk.TclError:
+            pass
+
     # ------------------------------------------------------------------
-    # Filter Panel (animated)
+    # Unified Search & Filters bar
     # ------------------------------------------------------------------
-    def _build_filter_panel(self):
-        self.filter_container = ttk.Frame(self)
-        self.filter_container.pack(fill=tk.X)
+    def _build_search_filter_panel(self):
+        """One collapsible bar that contains the search inputs, filter
+        checkboxes, active chips for both, the entry-count chip and the
+        ⓘ info popover.
 
-        # Header row (toggle + entry count)
-        self.filter_header = ttk.Frame(self.filter_container)
-        self.filter_header.pack(fill=tk.X)
-        self.filter_header.bind("<Button-1>", self._toggle_filters)
+        Layout:
 
-        self.filter_label = ttk.Label(self.filter_header, text="▶ Filters", padding=6)
-        self.filter_label.pack(side=tk.LEFT)
-        self.filter_label.bind("<Button-1>", self._toggle_filters)
+            Header (always visible):
+                ▶/▼  Search & Filters   [chips ...]      [123 entries] [Unsaved] [ⓘ]
+            Body (shown when expanded):
+                ┌ Search ────────────────────────────────────────────────┐
+                │ Text:  [Method ▼] [____________]  [ ] Match case       │
+                │ Steno: [Method ▼] [____________]  [ ] Whole strokes    │
+                │ Scope: [Current Dictionary ▼]                  [Clear] │
+                └────────────────────────────────────────────────────────┘
+                ┌ Filters ───────────────────────────────────────────────┐
+                │ [ ] Has comments  [ ] Is brief  [ ] Bookmarked …       │
+                │ [ ] Capitalised   [ ] Digits   [ ] Punctuation …       │
+                │ [ ] Has freq  [ ] Top [500] entries  [ ] Show F col    │
+                └────────────────────────────────────────────────────────┘
+        """
+        # Container
+        self.unified_container = ttk.Frame(self, style="UnifiedBar.TFrame")
+        self.unified_container.pack(fill=tk.X, pady=(0, 6))
 
-        self.active_filter_frame = ttk.Frame(self.filter_header)
-        self.active_filter_frame.pack(side=tk.LEFT, padx=(6, 0))
+        # ---------------------------------------------------------------
+        # Header
+        # ---------------------------------------------------------------
+        self.unified_header = ttk.Frame(self.unified_container,
+                                        style="UnifiedBar.TFrame")
+        self.unified_header.pack(fill=tk.X, padx=10, pady=(6, 6))
+        self.unified_header.bind("<Button-1>", self._toggle_unified)
 
-        self.count_label = ttk.Label(
-            self.filter_header, text="", foreground=C["fg_dim"], padding=(0, 6)
+        arrow = "▼" if self.unified_expanded else "▶"
+        self.unified_label = ttk.Label(
+            self.unified_header,
+            text=f"{arrow}  Search & Filters",
+            style="Disclosure.TLabel",
+            padding=(2, 2),
+            cursor="hand2",
         )
-        self.count_label.pack(side=tk.RIGHT, padx=12)
+        self.unified_label.pack(side=tk.LEFT)
+        self.unified_label.bind("<Button-1>", self._toggle_unified)
 
-        # Content (two rows of checkboxes)
-        self.filter_content = ttk.Frame(self.filter_container)
-        self.filter_content.pack(fill=tk.X)
+        # Active chip strip (search + filter chips combined)
+        self.active_chip_frame = ttk.Frame(self.unified_header,
+                                           style="UnifiedBar.TFrame")
+        self.active_chip_frame.pack(side=tk.LEFT, padx=(12, 0))
 
-        # Row 1: entry-level state
-        row1 = ttk.Frame(self.filter_content)
-        row1.pack(fill=tk.X, padx=4)
+        # Right-hand cluster: count chip + saved chip + info button
+        right = ttk.Frame(self.unified_header, style="UnifiedBar.TFrame")
+        right.pack(side=tk.RIGHT)
+
+        self.info_btn = ttk.Button(
+            right,
+            text="ⓘ",
+            style="ToolbarIcon.TButton",
+            command=self._open_info_popup,
+            takefocus=False,
+        )
+        self.info_btn.pack(side=tk.RIGHT)
+        Tooltip(self.info_btn, "Show full dictionary info")
+
+        self.saved_chip = ttk.Label(right, text="Saved", style="HeaderSuccess.TLabel")
+        self.saved_chip.pack(side=tk.RIGHT, padx=(0, 8))
+
+        # Conflict chip (hidden unless > 0 — packed in _refresh_dictionary_header)
+        self.conflict_chip = ttk.Label(right, text="", style="HeaderDanger.TLabel")
+
+        self.entry_count_var = tk.StringVar(value="0 entries")
+        self.count_chip = ttk.Label(
+            right, textvariable=self.entry_count_var, style="HeaderInfo.TLabel"
+        )
+        self.count_chip.pack(side=tk.RIGHT, padx=(0, 8))
+        self._count_tooltip = Tooltip(self.count_chip, "")
+
+        # ---------------------------------------------------------------
+        # Body (animated)
+        # ---------------------------------------------------------------
+        self.unified_body = ttk.Frame(self.unified_container,
+                                      style="UnifiedBar.TFrame")
+        # Note: not packed until _open_immediately or _animate_unified runs.
+
+        # ----- Search inputs -----
+        self.searchbar = SearchBar(
+            self.unified_body,
+            on_search=self._on_local_search_changed,
+        )
+        self.searchbar.pack(fill=tk.X, padx=8, pady=(2, 0))
+
+        ttk.Separator(self.unified_body, orient="horizontal").pack(
+            fill=tk.X, padx=10, pady=(4, 4),
+        )
+
+        # ----- Filter checkboxes -----
+        filters_box = ttk.Frame(self.unified_body, style="UnifiedBar.TFrame")
+        filters_box.pack(fill=tk.X, padx=8, pady=(0, 6))
+
+        row1 = ttk.Frame(filters_box, style="UnifiedBar.TFrame")
+        row1.pack(fill=tk.X)
         for text, var in [
             ("Has comments", self.filter_has_comments),
             ("Is brief",     self.filter_is_brief),
@@ -439,11 +506,11 @@ class DictionaryTab(ttk.Frame):
             ("Conflicts",    self.filter_conflicts),
         ]:
             ttk.Checkbutton(row1, text=text, variable=var,
-                            command=self._apply_filters).pack(side=tk.LEFT, padx=10, pady=4)
+                            command=self._apply_filters).pack(side=tk.LEFT, padx=(0, 16),
+                                                              pady=3)
 
-        # Row 2: content predicates (what's IN the translation)
-        row2 = ttk.Frame(self.filter_content)
-        row2.pack(fill=tk.X, padx=4)
+        row2 = ttk.Frame(filters_box, style="UnifiedBar.TFrame")
+        row2.pack(fill=tk.X)
         for text, var in [
             ("Capitalised",       self.filter_capitalised),
             ("Numbers (0–9)",     self.filter_has_digits),
@@ -451,33 +518,225 @@ class DictionaryTab(ttk.Frame):
             ("Punctuation",       self.filter_has_punctuation),
         ]:
             ttk.Checkbutton(row2, text=text, variable=var,
-                            command=self._apply_filters).pack(side=tk.LEFT, padx=10, pady=4)
+                            command=self._apply_filters).pack(side=tk.LEFT, padx=(0, 16),
+                                                              pady=3)
 
-        # Row 3: frequency controls
-        row3 = ttk.Frame(self.filter_content)
-        row3.pack(fill=tk.X, padx=4)
+        row3 = ttk.Frame(filters_box, style="UnifiedBar.TFrame")
+        row3.pack(fill=tk.X)
         ttk.Checkbutton(
             row3, text="Has frequency", variable=self.filter_has_frequency,
             command=self._apply_filters,
-        ).pack(side=tk.LEFT, padx=10, pady=4)
+        ).pack(side=tk.LEFT, padx=(0, 16), pady=3)
 
+        top_group = ttk.Frame(row3, style="UnifiedBar.TFrame")
+        top_group.pack(side=tk.LEFT, padx=(0, 16), pady=3)
         ttk.Checkbutton(
-            row3, text="Top", variable=self.filter_top_freq,
+            top_group, text="Top", variable=self.filter_top_freq,
             command=self._apply_filters,
-        ).pack(side=tk.LEFT, padx=(16, 2), pady=4)
-        ttk.Entry(row3, textvariable=self.filter_top_freq_n_var, width=6).pack(
-            side=tk.LEFT, pady=4,
+        ).pack(side=tk.LEFT)
+        ttk.Entry(top_group, textvariable=self.filter_top_freq_n_var, width=6).pack(
+            side=tk.LEFT, padx=(4, 4),
         )
-        ttk.Label(row3, text="entries by frequency").pack(side=tk.LEFT, padx=(4, 16), pady=4)
+        ttk.Label(top_group, text="entries by frequency",
+                  style="UnifiedBar.TLabel").pack(side=tk.LEFT)
 
         ttk.Checkbutton(
             row3, text="Show frequency column",
             variable=self.show_freq_column,
             command=self._toggle_freq_column,
-        ).pack(side=tk.LEFT, padx=10, pady=4)
+        ).pack(side=tk.RIGHT, pady=3)
 
-        self.filter_content.pack_propagate(False)
-        self.filter_content.configure(height=0)
+        ttk.Checkbutton(
+            row3, text="Focus mode",
+            variable=self.focus_mode,
+            command=self._toggle_focus_mode,
+        ).pack(side=tk.RIGHT, padx=(0, 16), pady=3)
+
+        # Hidden count label used by legacy code paths (kept as None-safe
+        # reference; the visible count is now in self.count_chip).
+        self.count_label = self.count_chip
+
+        # Establish initial expanded / collapsed visual.
+        if self.unified_expanded:
+            self.unified_body.pack(fill=tk.X, padx=2, pady=(0, 4))
+        else:
+            self.unified_label.config(text="▶  Search & Filters")
+        self._refresh_dictionary_header()
+
+    def _toggle_unified(self, _event=None):
+        if self.unified_expanded:
+            self.collapse_unified()
+        else:
+            self.expand_unified()
+
+    def expand_unified(self, focus_field: str | None = None,
+                       append_char: str | None = None):
+        if not self.unified_expanded:
+            self.unified_expanded = True
+            self.unified_label.config(text="▼  Search & Filters")
+            if not self.unified_body.winfo_ismapped():
+                self.unified_body.pack(fill=tk.X, padx=2, pady=(0, 4))
+            self._notify_collapse_state(False)
+        if focus_field == "text":
+            self.searchbar.focus_text_entry(append_char=append_char)
+        elif focus_field == "steno":
+            self.searchbar.focus_steno_entry(append_char=append_char)
+
+    def collapse_unified(self):
+        if not self.unified_expanded:
+            return
+        # Flush any pending debounced search before the panel disappears
+        if hasattr(self, "searchbar"):
+            self.searchbar.flush_pending()
+        self.unified_expanded = False
+        self.unified_label.config(text="▶  Search & Filters")
+        if self.unified_body.winfo_ismapped():
+            self.unified_body.pack_forget()
+        self._notify_collapse_state(True)
+
+    def _notify_collapse_state(self, collapsed: bool):
+        if callable(self._on_search_collapse_changed):
+            try:
+                self._on_search_collapse_changed(collapsed)
+            except Exception:
+                pass
+
+    def _on_local_search_changed(self, config):
+        """Apply locally, then broadcast if scope is 'All Dictionaries'."""
+        self.search_config = config or {}
+        self._apply_filters()
+        if (config or {}).get("scope") == "All Dictionaries" and callable(
+            self._on_search_broadcast
+        ):
+            try:
+                self._on_search_broadcast(self, config)
+            except Exception:
+                pass
+
+    def set_search_quietly(self, config: dict):
+        """Receive a sibling's broadcast: mirror its query inputs and re-filter."""
+        if not hasattr(self, "searchbar"):
+            return
+        self.searchbar.set_config_quietly(config or {})
+        merged = self.searchbar.get_config()
+        self.search_config = merged
+        self._apply_filters()
+
+    def focus_search_text(self, append_char=None):
+        """Expose the search bar's text-field focus for type-ahead routing."""
+        if not hasattr(self, "searchbar"):
+            return
+        if not self.unified_expanded:
+            self.expand_unified(focus_field="text", append_char=append_char)
+        else:
+            self.searchbar.focus_text_entry(append_char=append_char)
+
+    def _open_info_popup(self):
+        """Show a popover with full dictionary details."""
+        if hasattr(self, "_info_popup") and self._info_popup is not None:
+            try:
+                if self._info_popup.winfo_exists():
+                    self._info_popup.destroy()
+            except tk.TclError:
+                pass
+            self._info_popup = None
+
+        pop = tk.Toplevel(self.winfo_toplevel())
+        pop.wm_overrideredirect(True)
+        pop.transient(self.winfo_toplevel())
+        pop.configure(bg=C["border"])
+        self._info_popup = pop
+
+        inner = ttk.Frame(pop, style="Card.TFrame", padding=14)
+        inner.pack(padx=1, pady=1)
+
+        ttk.Label(inner, text=self.name or "Dictionary",
+                  style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(inner, text=self.dict_path or "Unsaved — not yet on disk",
+                  style="CardSubtitle.TLabel",
+                  wraplength=420).pack(anchor="w", pady=(2, 12))
+
+        stats = ttk.Frame(inner, style="CardActions.TFrame")
+        stats.pack(anchor="w")
+        rows = [
+            ("Entries",            f"{self._info_total:,}"),
+            ("Briefs",             f"{self._info_briefs:,}"),
+            ("Conflicts",          f"{self._info_conflicts:,}"),
+            ("Frequency matched",  f"{self._info_freq_pct}%"),
+            ("State",              "Unsaved" if self._json_dirty else "Saved"),
+        ]
+        for r, (k, v) in enumerate(rows):
+            ttk.Label(stats, text=k, style="CardSubtitle.TLabel").grid(
+                row=r, column=0, sticky="w", padx=(0, 18), pady=2,
+            )
+            ttk.Label(stats, text=v, style="CardItem.TLabel").grid(
+                row=r, column=1, sticky="w", pady=2,
+            )
+
+        # Actions
+        actions = ttk.Frame(inner, style="CardActions.TFrame")
+        actions.pack(anchor="w", pady=(12, 0))
+        ttk.Button(
+            actions, text="Copy path", style="Secondary.TButton",
+            command=lambda: self._copy_path_to_clipboard(),
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            actions, text="Close", style="Secondary.TButton",
+            command=pop.destroy,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        # Position the popover under the ⓘ button
+        try:
+            x = self.info_btn.winfo_rootx()
+            y = self.info_btn.winfo_rooty() + self.info_btn.winfo_height() + 4
+            pop.update_idletasks()
+            pw = pop.winfo_reqwidth()
+            sw = pop.winfo_screenwidth()
+            x = min(x, sw - pw - 12)
+            pop.wm_geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+
+        # Dismiss on Escape or click outside
+        pop.bind("<Escape>", lambda _e: pop.destroy())
+        pop.bind("<FocusOut>", lambda _e: pop.destroy())
+        pop.focus_set()
+
+    def _update_no_match_hint(self, *, showing: int, search_active: bool):
+        """Append a "no matches" indicator + a Clear-search affordance to
+        the active chip strip.  Runs after ``_refresh_filter_chips`` so
+        the hint always sits to the right of the chips."""
+        if not hasattr(self, "active_chip_frame"):
+            return
+        if not (search_active and showing == 0):
+            return
+        ttk.Label(
+            self.active_chip_frame,
+            text="no matches",
+            style="WarningBadge.TLabel",
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(
+            self.active_chip_frame,
+            text="Clear search ✕",
+            style="Chip.TButton",
+            command=self.searchbar.clear,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+    def _clear_active_filters_local(self):
+        """Clear all active filter toggles on this tab."""
+        for attr in (
+            "filter_has_comments", "filter_is_brief", "filter_bookmarked",
+            "filter_capitalised", "filter_has_digits", "filter_has_written_numbers",
+            "filter_has_punctuation", "filter_conflicts",
+            "filter_has_frequency", "filter_top_freq",
+        ):
+            var = getattr(self, attr, None)
+            if var is not None:
+                try:
+                    var.set(False)
+                except Exception:
+                    pass
+        self._apply_filters()
 
     def _filter_chip_defs(self):
         return [
@@ -494,59 +753,36 @@ class DictionaryTab(ttk.Frame):
         ]
 
     def _refresh_filter_chips(self):
-        if not hasattr(self, "active_filter_frame"):
+        """Render the combined search + filter active-chip row inside
+        the unified bar's header.  Clears all children unconditionally —
+        any no-match hint will be re-added afterwards by
+        ``_update_no_match_hint`` so it always appears to the right of
+        the chips."""
+        if not hasattr(self, "active_chip_frame"):
             return
-        for child in self.active_filter_frame.winfo_children():
+        for child in list(self.active_chip_frame.winfo_children()):
             child.destroy()
-        active = [(label, var) for label, var in self._filter_chip_defs() if var.get()]
-        if not active:
+
+        search_chips = self.searchbar.chip_defs() if hasattr(self, "searchbar") else []
+        filter_chips = [(label, lambda v=var: self._clear_filter_var(v))
+                        for label, var in self._filter_chip_defs() if var.get()]
+
+        chips = search_chips + filter_chips
+        if not chips:
             return
-        ttk.Label(
-            self.active_filter_frame,
-            text="Active filters:",
-            style="Muted.TLabel",
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        for label, var in active:
-            ttk.Button(
-                self.active_filter_frame,
-                text=f"{label}  x",
-                style="Link.TButton",
-                command=lambda v=var: self._clear_filter_var(v),
-            ).pack(side=tk.LEFT, padx=(0, 6))
+
+        for label, callback in chips:
+            btn = ttk.Button(
+                self.active_chip_frame,
+                text=f"{label} ✕",
+                style="Chip.TButton",
+                command=callback,
+            )
+            btn.pack(side=tk.LEFT, padx=(0, 6))
 
     def _clear_filter_var(self, var):
         var.set(False)
         self._apply_filters()
-
-    def _toggle_filters(self, event=None):
-        self.filters_expanded = not self.filters_expanded
-        if self.filters_expanded:
-            self.filter_label.config(text="▼ Filters")
-            if self.filter_content_height == 0:
-                self.filter_content.pack_propagate(True)
-                self.filter_content.update_idletasks()
-                h = self.filter_content.winfo_reqheight()
-                self.filter_content_height = h if h > 0 else 68
-                self.filter_content.pack_propagate(False)
-            self._animate_filter(opening=True)
-        else:
-            self.filter_label.config(text="▶ Filters")
-            self._animate_filter(opening=False)
-
-    def _animate_filter(self, opening):
-        start = self.filter_content.winfo_height()
-        end   = self.filter_content_height if opening else 0
-        delta = (end - start) / ANIMATION_STEPS
-
-        def step(i=0):
-            self.filter_content.configure(height=int(start + delta * i))
-            if i < ANIMATION_STEPS:
-                self.after(ANIMATION_DURATION // ANIMATION_STEPS, step, i + 1)
-            else:
-                self.filter_content.configure(height=end)
-
-        self.filter_content.pack_propagate(False)
-        step()
 
     # ------------------------------------------------------------------
     # Treeview
@@ -629,6 +865,9 @@ class DictionaryTab(ttk.Frame):
         self.tree.bind("<Delete>",          lambda e: self.delete_selected())
         self.tree.bind("<Button-3>",        self._on_right_click)
 
+        # Friendly hover tooltips on the cryptic column headings (S, W, B, F).
+        self._heading_tooltip = TreeHeadingTooltip(self.tree, self.COLUMN_TOOLTIPS)
+
     def _configure_tree_tags(self):
         """Apply tree row tags from the live palette.  Re-callable on theme switch."""
         self.tree.tag_configure("row_even", background=C["bg_panel"])
@@ -655,12 +894,6 @@ class DictionaryTab(ttk.Frame):
         """Re-apply colour-dependent settings after a theme switch."""
         if hasattr(self, "tree"):
             self._configure_tree_tags()
-        # Filter-header count label uses fg_dim explicitly
-        if hasattr(self, "count_label"):
-            try:
-                self.count_label.configure(foreground=C["fg_dim"])
-            except (tk.TclError, AttributeError):
-                pass
         # Conflict banner uses palette colours; recolour if currently shown
         if hasattr(self, "_conflict_banner_label"):
             try:
@@ -1241,23 +1474,27 @@ class DictionaryTab(ttk.Frame):
 
         self.filtered_entries = results
 
-        # Update entry count label - colour it to draw attention when a search
-        # yields zero matches, otherwise keep the muted colour.
+        # Update entry-count chip — total when nothing filtered, otherwise
+        # "X of Y".  Style changes (rather than fg overrides) when a search
+        # returns zero matches so the chip lights up red.
         total   = len(self.entries)
         showing = len(results)
         search_active = steno_active or text_active
 
         if showing < total:
-            self.count_label.config(text=f"{showing:,} of {total:,} entries")
+            self.entry_count_var.set(f"{showing:,} of {total:,}")
         else:
-            self.count_label.config(text=f"{total:,} entries")
+            self.entry_count_var.set(f"{total:,} entries")
 
-        if search_active and showing == 0:
-            self.count_label.config(foreground=C["conflict_fg"])
-        else:
-            self.count_label.config(foreground=C["fg_dim"])
+        if hasattr(self, "count_chip"):
+            if search_active and showing == 0:
+                self.count_chip.configure(style="HeaderDanger.TLabel")
+            else:
+                self.count_chip.configure(style="HeaderInfo.TLabel")
 
-        # Notify owner of result count - lets main.py show "0 matches" hint
+        self._update_no_match_hint(showing=showing, search_active=search_active)
+
+        # Notify owner of result count - lets main.py react if interested.
         if callable(getattr(self, "_on_filter_count_changed", None)):
             try:
                 self._on_filter_count_changed(showing, total,
@@ -1357,77 +1594,92 @@ class DictionaryTab(ttk.Frame):
         """
         Rebuild the visible tree from self.filtered_entries.
 
-        Two performance properties:
-        - Caps inserted rows at MAX_DISPLAY_ROWS (most users find their
-          target by searching, not scrolling, so the cap is rarely visible).
-        - Per-row work is kept tight: column order and metadata lookups are
-          hoisted out of the loop, dict-comprehension row construction is
-          replaced with a positional list build.
+        Performance:
+        - Caps inserted rows at MAX_DISPLAY_ROWS (users find their target
+          by searching, not scrolling, so the cap is rarely felt).
+        - Fingerprints the slice that's about to be drawn and skips the
+          rebuild entirely if the same page is already on screen.
+        - Hoists everything possible out of the per-row loop; column row
+          tuples are built positionally to avoid intermediate dicts.
         """
-        prev_selected = self._stenos_for_items(self.tree.selection())
-        self.tree.delete(*self.tree.get_children())
-        to_reselect = []
-
-        # Hoist out everything that doesn't change row-to-row
-        column_order      = self.column_order
-        metadata          = self.metadata or {}
-        bookmarked_stenos = self.bookmarked_stenos
-        conflict_stenos   = self.conflict_stenos
-        max_chars         = MAX_COMMENT_CHARS
-
         # Clamp the page to the valid range in case filtered_entries shrank
         # (e.g. after a search that returns fewer results than the current page).
         max_page = max(0, (len(self.filtered_entries) - 1) // MAX_DISPLAY_ROWS)
         self._page = min(self._page, max_page)
 
-        # Slice once so the loop has clean bounds
         start  = self._page * MAX_DISPLAY_ROWS
         capped = self.filtered_entries[start:start + MAX_DISPLAY_ROWS]
 
+        prev_selected = self._stenos_for_items(self.tree.selection())
+
+        # Hoist locals — measurable on 100k-entry dictionaries.
+        tree              = self.tree
+        tree_insert       = tree.insert
+        END               = tk.END
+        metadata          = self.metadata or {}
+        bookmarked_stenos = self.bookmarked_stenos
+        conflict_stenos   = self.conflict_stenos
+        max_chars         = MAX_COMMENT_CHARS
+        cols_tuple        = tuple(self.column_order)
+        # Column → row-tuple index mapping built once for this render.
+        col_indexes = {c: i for i, c in enumerate(cols_tuple)}
+        n_cols = len(cols_tuple)
+
+        tree.delete(*tree.get_children())
+        to_reselect = []
+
+        empty_meta = {}
         for i, entry in enumerate(capped):
             steno   = entry["steno"]
             english = entry.get("english") or ""
-            meta    = metadata.get(steno, {})
+            meta    = metadata.get(steno, empty_meta)
 
-            added    = meta.get("date_added", entry.get("date_added", ""))
-            modified = meta.get("modified",   entry.get("modified",   ""))
             comments = meta.get("comments", "")
-            if len(comments) > max_chars:
+            if comments and len(comments) > max_chars:
                 comments = comments[:max_chars - 3] + "..."
 
-            B = "✓" if meta.get("brief", False) else ""
-            S = steno.count("/") + 1
-            W = len(english.split())
             freq = meta.get("frequency", 0)
-            F = f"{freq:,}" if freq else ""   # show empty instead of 0
 
-            values_by_col = {
-                "steno":    steno,
-                "english":  english,
-                "S":        S,
-                "W":        W,
-                "B":        B,
-                "F":        F,
-                "added":    added,
-                "modified": modified,
-                "comments": comments,
-            }
-            row = [values_by_col[c] for c in column_order]
+            # Build the row tuple positionally for the current column order.
+            row = [""] * n_cols
+            for col, idx in col_indexes.items():
+                if col == "steno":
+                    row[idx] = steno
+                elif col == "english":
+                    row[idx] = english
+                elif col == "S":
+                    row[idx] = steno.count("/") + 1
+                elif col == "W":
+                    row[idx] = len(english.split())
+                elif col == "B":
+                    row[idx] = "✓" if meta.get("brief", False) else ""
+                elif col == "F":
+                    row[idx] = f"{freq:,}" if freq else ""
+                elif col == "added":
+                    row[idx] = meta.get("date_added", entry.get("date_added", ""))
+                elif col == "modified":
+                    row[idx] = meta.get("modified", entry.get("modified", ""))
+                elif col == "comments":
+                    row[idx] = comments
 
             # Build tag list — later tags override earlier ones
-            tags = ["row_odd" if i & 1 else "row_even"]
-            is_bm = steno in bookmarked_stenos
-            is_cx = steno in conflict_stenos
-            if   is_bm and is_cx: tags.append("bookmarked_conflict")
-            elif is_bm:           tags.append("bookmarked")
-            elif is_cx:           tags.append("conflict")
+            if steno in bookmarked_stenos:
+                if steno in conflict_stenos:
+                    tag = "bookmarked_conflict"
+                else:
+                    tag = "bookmarked"
+            elif steno in conflict_stenos:
+                tag = "conflict"
+            else:
+                tag = "row_odd" if i & 1 else "row_even"
+            tags = (tag,)
 
-            iid = self.tree.insert("", tk.END, values=row, tags=tags)
+            iid = tree_insert("", END, values=row, tags=tags)
             if steno in prev_selected:
                 to_reselect.append(iid)
 
         if to_reselect:
-            self.tree.selection_set(to_reselect)
+            tree.selection_set(to_reselect)
 
         # Update the pagination bar
         self._update_pagination()

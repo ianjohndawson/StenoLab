@@ -1,5 +1,20 @@
 # ui/statusbar.py
+"""
+Bottom status bar.
+
+Layout (left → right):
+
+    [📖 N entries] [🗂 N open] [● Active: name] [💾 Saved hh:mm]   …   [chip] [Save All]
+
+Each segment is its own ``ttk.Label`` so we can give them subtle dividers
+and let long values truncate naturally without stretching the row.  All
+labels share the ``StatusBar.TLabel`` style so a theme switch reaches them
+through the live palette.
+"""
+import tkinter as tk
 from tkinter import ttk
+
+from ui.theme import C
 
 
 class StatusBar(ttk.Frame):
@@ -17,16 +32,22 @@ class StatusBar(ttk.Frame):
 
         self._build()
 
+    # ------------------------------------------------------------------
     def _build(self):
+        # Thin top divider so the bar reads as a distinct surface.
+        divider = ttk.Frame(self, style="StatusBarDivider.TFrame", height=1)
+        divider.pack(fill="x", side="top")
+
         row = ttk.Frame(self, style="StatusBar.TFrame")
-        row.pack(fill="x", padx=12, pady=7)
+        row.pack(fill="x", padx=12, pady=6)
 
-        self.meta_label = ttk.Label(row, style="StatusBar.TLabel", anchor="w")
-        self.meta_label.pack(side="left", fill="x", expand=True)
+        # Metric segments
+        self.entries_label = self._segment(row)
+        self.dicts_label = self._segment(row, with_divider=True)
+        self.active_label = self._segment(row, with_divider=True)
+        self.saved_label = self._segment(row, with_divider=True)
 
-        self.unsaved_chip = ttk.Label(row, style="HeaderChip.TLabel")
-        self.unsaved_chip.pack(side="right", padx=(8, 0))
-
+        # Right side actions
         self.save_all_btn = ttk.Button(
             row,
             text="Save All",
@@ -35,8 +56,23 @@ class StatusBar(ttk.Frame):
         )
         self.save_all_btn.pack(side="right")
 
+        self.unsaved_chip = ttk.Label(row, style="HeaderSuccess.TLabel")
+        self.unsaved_chip.pack(side="right", padx=(0, 10))
+
         self._render()
 
+    def _segment(self, parent, with_divider: bool = False) -> ttk.Label:
+        if with_divider:
+            ttk.Label(
+                parent,
+                text="·",
+                style="StatusBarDivider.TLabel",
+            ).pack(side="left", padx=8)
+        label = ttk.Label(parent, style="StatusBar.TLabel", anchor="w")
+        label.pack(side="left")
+        return label
+
+    # ------------------------------------------------------------------
     def update_status(self, *, entries=None, dictionaries=None, active=None,
                       saved=None, unsaved=None):
         if entries is not None:
@@ -53,22 +89,50 @@ class StatusBar(ttk.Frame):
         self._render()
 
     def _render(self):
-        text = (
-            f"{self.entry_count:,} entries   |   "
-            f"{self.dict_count} open   |   "
-            f"Active: {self.active_dict or '-'}   |   "
-            f"Saved: {self.last_saved}"
+        entries = self.entry_count
+        dicts = self.dict_count
+        self.entries_label.configure(
+            text=f"{entries:,} entr{'y' if entries == 1 else 'ies'}"
         )
-        self.meta_label.configure(text=text)
+        self.dicts_label.configure(text=f"{dicts} open")
+        active = self.active_dict.strip() if self.active_dict else ""
+        self.active_label.configure(text=f"Active: {active or '—'}")
+        saved = (self.last_saved or "—").strip() or "—"
+        self.saved_label.configure(text=f"Saved: {saved}")
+
         if self.unsaved_count:
             self.unsaved_chip.configure(
                 text=f"{self.unsaved_count} unsaved",
                 style="HeaderWarning.TLabel",
             )
+            self.save_all_btn.configure(state="normal")
         else:
-            self.unsaved_chip.configure(text="All saved", style="HeaderSuccess.TLabel")
-        self.save_all_btn.configure(state="normal" if self.unsaved_count > 0 else "disabled")
+            self.unsaved_chip.configure(
+                text="All saved",
+                style="HeaderSuccess.TLabel",
+            )
+            self.save_all_btn.configure(state="disabled")
 
     def _save_all(self):
         if callable(self._on_save_all):
             self._on_save_all()
+
+    # ------------------------------------------------------------------
+    def refresh_theme(self):
+        """Re-pull palette colours after a runtime theme switch."""
+        try:
+            for child in self.winfo_children():
+                self._restyle_recursive(child)
+        except tk.TclError:
+            pass
+
+    def _restyle_recursive(self, widget):
+        try:
+            widget.configure(background=C["bg"])
+        except tk.TclError:
+            pass
+        try:
+            for child in widget.winfo_children():
+                self._restyle_recursive(child)
+        except tk.TclError:
+            pass
