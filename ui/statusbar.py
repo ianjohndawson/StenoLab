@@ -39,7 +39,7 @@ class StatusBar(ttk.Frame):
         divider.pack(fill="x", side="top")
 
         row = ttk.Frame(self, style="StatusBar.TFrame")
-        row.pack(fill="x", padx=12, pady=6)
+        row.pack(fill="x", padx=12, pady=4)
 
         # Metric segments
         self.entries_label = self._segment(row)
@@ -51,13 +51,12 @@ class StatusBar(ttk.Frame):
         self.save_all_btn = ttk.Button(
             row,
             text="Save All",
-            style="Primary.TButton",
+            style="Compact.TButton",
             command=self._save_all,
         )
-        self.save_all_btn.pack(side="right")
 
-        self.unsaved_chip = ttk.Label(row, style="HeaderSuccess.TLabel")
-        self.unsaved_chip.pack(side="right", padx=(0, 10))
+        self.unsaved_chip = ttk.Label(row, style="StatusBar.TLabel")
+        self.unsaved_chip.pack(side="right")
 
         self._render()
 
@@ -101,16 +100,27 @@ class StatusBar(ttk.Frame):
         self.saved_label.configure(text=f"Saved: {saved}")
 
         if self.unsaved_count:
+            if self.unsaved_chip.winfo_ismapped():
+                self.unsaved_chip.pack_forget()
+            if self.save_all_btn.winfo_ismapped():
+                self.save_all_btn.pack_forget()
+            self.save_all_btn.pack(side="right")
+            self.unsaved_chip.pack(side="right", padx=(0, 8))
             self.unsaved_chip.configure(
                 text=f"{self.unsaved_count} unsaved",
                 style="HeaderWarning.TLabel",
             )
             self.save_all_btn.configure(state="normal")
         else:
+            if self.save_all_btn.winfo_ismapped():
+                self.save_all_btn.pack_forget()
+            if not self.unsaved_chip.winfo_ismapped():
+                self.unsaved_chip.pack(side="right")
             self.unsaved_chip.configure(
-                text="All saved",
-                style="HeaderSuccess.TLabel",
+                text="Saved",
+                style="StatusBar.TLabel",
             )
+            self.unsaved_chip.pack_configure(padx=(0, 0))
             self.save_all_btn.configure(state="disabled")
 
     def _save_all(self):

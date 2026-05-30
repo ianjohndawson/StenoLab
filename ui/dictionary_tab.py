@@ -87,8 +87,8 @@ class DictionaryTab(ttk.Frame):
     }
 
     DEFAULT_WIDTHS = {
-        "steno":    160,
-        "english":  340,
+        "steno":    150,
+        "english":  420,
         "S":        40,
         "W":        40,
         "B":        30,
@@ -197,10 +197,13 @@ class DictionaryTab(ttk.Frame):
     # ------------------------------------------------------------------
     @classmethod
     def _make_column_order(cls, show_freq: bool, focus_mode: bool = False) -> list:
-        """Return the active column list, inserting F after B when requested."""
+        """Return the active column list, inserting F where it reads naturally."""
         cols = list(cls.FOCUS_COLUMNS if focus_mode else cls.EDIT_COLUMNS)
         if show_freq:
-            cols.insert(cols.index("B") + 1, "F")
+            if "B" in cols:
+                cols.insert(cols.index("B") + 1, "F")
+            else:
+                cols.append("F")
         return cols
 
     def _configure_columns(self):
@@ -213,7 +216,7 @@ class DictionaryTab(ttk.Frame):
             )
             width  = self.column_widths.get(col, self.DEFAULT_WIDTHS[col])
             anchor = "w" if col in ("steno", "english", "comments") else "center"
-            self.tree.column(col, width=width, anchor=anchor)
+            self.tree.column(col, width=width, anchor=anchor, stretch=False)
 
     def _toggle_freq_column(self):
         """Show or hide the F column; sync to all other open tabs and persist."""
@@ -345,7 +348,7 @@ class DictionaryTab(ttk.Frame):
                 self.conflict_chip.configure(text=text, style="HeaderDanger.TLabel")
                 if not self.conflict_chip.winfo_ismapped():
                     self.conflict_chip.pack(side=tk.LEFT, padx=(0, 6),
-                                            before=self.info_btn)
+                                            before=self.saved_chip)
             else:
                 if self.conflict_chip.winfo_ismapped():
                     self.conflict_chip.pack_forget()
@@ -368,46 +371,20 @@ class DictionaryTab(ttk.Frame):
             f"{self._info_total:,} entries\n"
             f"{self._info_briefs:,} briefs\n"
             f"{self._info_conflicts:,} conflicts\n"
-            f"{self._info_freq_pct}% frequency matched\n\n"
-            f"Click for details"
+            f"{self._info_freq_pct}% frequency matched"
         )
-
-    def _short_header_path(self, path: str | None) -> str:
-        if not path:
-            return "Unsaved dictionary"
-        if len(path) <= 96:
-            return path
-        drive, tail = os.path.splitdrive(path)
-        folder, filename = os.path.split(tail)
-        parts = [p for p in folder.split(os.sep) if p]
-        if len(parts) >= 2:
-            return os.path.join(drive + os.sep, parts[0], "...", parts[-1], filename)
-        return os.path.join(drive + os.sep, "...", filename)
-
-    def _copy_path_to_clipboard(self, _event=None):
-        """Clicking the header path copies the full file path to the clipboard."""
-        path = self.dict_path or ""
-        if not path:
-            return
-        try:
-            root = self.winfo_toplevel()
-            root.clipboard_clear()
-            root.clipboard_append(path)
-        except tk.TclError:
-            pass
 
     # ------------------------------------------------------------------
     # Unified Search & Filters bar
     # ------------------------------------------------------------------
     def _build_search_filter_panel(self):
         """One collapsible bar that contains the search inputs, filter
-        checkboxes, active chips for both, the entry-count chip and the
-        ⓘ info popover.
+        checkboxes, active chips for both, and the entry-count chip.
 
         Layout:
 
             Header (always visible):
-                ▶/▼  Search & Filters   [chips ...]      [123 entries] [Unsaved] [ⓘ]
+                ▶/▼  Search & Filters   [chips ...]      [123 entries] [Unsaved]
             Body (shown when expanded):
                 ┌ Search ────────────────────────────────────────────────┐
                 │ Text:  [Method ▼] [____________]  [ ] Match case       │
@@ -428,8 +405,11 @@ class DictionaryTab(ttk.Frame):
         # Header
         # ---------------------------------------------------------------
         self.unified_header = ttk.Frame(self.unified_container,
-                                        style="UnifiedBar.TFrame")
+                                        style="UnifiedBarInner.TFrame")
         self.unified_header.pack(fill=tk.X, padx=10, pady=(6, 6))
+        self.unified_header.columnconfigure(0, weight=0)
+        self.unified_header.columnconfigure(1, weight=1)
+        self.unified_header.columnconfigure(2, weight=0)
         self.unified_header.bind("<Button-1>", self._toggle_unified)
 
         arrow = "▼" if self.unified_expanded else "▶"
@@ -440,29 +420,19 @@ class DictionaryTab(ttk.Frame):
             padding=(2, 2),
             cursor="hand2",
         )
-        self.unified_label.pack(side=tk.LEFT)
+        self.unified_label.grid(row=0, column=0, sticky="w")
         self.unified_label.bind("<Button-1>", self._toggle_unified)
 
         # Active chip strip (search + filter chips combined)
         self.active_chip_frame = ttk.Frame(self.unified_header,
-                                           style="UnifiedBar.TFrame")
-        self.active_chip_frame.pack(side=tk.LEFT, padx=(12, 0))
+                                           style="UnifiedBarInner.TFrame")
+        self.active_chip_frame.grid(row=0, column=1, sticky="w", padx=(10, 12))
 
-        # Right-hand cluster: count chip + saved chip + info button
-        right = ttk.Frame(self.unified_header, style="UnifiedBar.TFrame")
-        right.pack(side=tk.RIGHT)
+        # Right-hand cluster: count chip + saved chip
+        right = ttk.Frame(self.unified_header, style="UnifiedBarInner.TFrame")
+        right.grid(row=0, column=2, sticky="e")
 
-        self.info_btn = ttk.Button(
-            right,
-            text="ⓘ",
-            style="ToolbarIcon.TButton",
-            command=self._open_info_popup,
-            takefocus=False,
-        )
-        self.info_btn.pack(side=tk.RIGHT)
-        Tooltip(self.info_btn, "Show full dictionary info")
-
-        self.saved_chip = ttk.Label(right, text="Saved", style="HeaderSuccess.TLabel")
+        self.saved_chip = ttk.Label(right, text="Saved", style="HeaderSubtle.TLabel")
         self.saved_chip.pack(side=tk.RIGHT, padx=(0, 8))
 
         # Conflict chip (hidden unless > 0 — packed in _refresh_dictionary_header)
@@ -470,7 +440,7 @@ class DictionaryTab(ttk.Frame):
 
         self.entry_count_var = tk.StringVar(value="0 entries")
         self.count_chip = ttk.Label(
-            right, textvariable=self.entry_count_var, style="HeaderInfo.TLabel"
+            right, textvariable=self.entry_count_var, style="HeaderChip.TLabel"
         )
         self.count_chip.pack(side=tk.RIGHT, padx=(0, 8))
         self._count_tooltip = Tooltip(self.count_chip, "")
@@ -479,7 +449,7 @@ class DictionaryTab(ttk.Frame):
         # Body (animated)
         # ---------------------------------------------------------------
         self.unified_body = ttk.Frame(self.unified_container,
-                                      style="UnifiedBar.TFrame")
+                                      style="UnifiedBarInner.TFrame")
         # Note: not packed until _open_immediately or _animate_unified runs.
 
         # ----- Search inputs -----
@@ -487,70 +457,83 @@ class DictionaryTab(ttk.Frame):
             self.unified_body,
             on_search=self._on_local_search_changed,
         )
-        self.searchbar.pack(fill=tk.X, padx=8, pady=(2, 0))
+        self.searchbar.pack(fill=tk.X, padx=10, pady=(2, 0))
 
         ttk.Separator(self.unified_body, orient="horizontal").pack(
-            fill=tk.X, padx=10, pady=(4, 4),
+            fill=tk.X, padx=10, pady=(8, 8),
         )
 
-        # ----- Filter checkboxes -----
-        filters_box = ttk.Frame(self.unified_body, style="UnifiedBar.TFrame")
-        filters_box.pack(fill=tk.X, padx=8, pady=(0, 6))
+        # ----- Filter checkboxes (grid keeps columns aligned) -----
+        filters_box = ttk.Frame(self.unified_body, style="UnifiedBarInner.TFrame")
+        filters_box.pack(fill=tk.X, padx=10, pady=(0, 10))
+        for col in range(4):
+            filters_box.columnconfigure(col, weight=1, uniform="filter_col")
 
-        row1 = ttk.Frame(filters_box, style="UnifiedBar.TFrame")
-        row1.pack(fill=tk.X)
-        for text, var in [
-            ("Has comments", self.filter_has_comments),
-            ("Is brief",     self.filter_is_brief),
-            ("Bookmarked",   self.filter_bookmarked),
-            ("Conflicts",    self.filter_conflicts),
-        ]:
-            ttk.Checkbutton(row1, text=text, variable=var,
-                            command=self._apply_filters).pack(side=tk.LEFT, padx=(0, 16),
-                                                              pady=3)
+        check_style = "UnifiedBar.TCheckbutton"
+        cell_pad = {"padx": (0, 14), "pady": 4, "sticky": "w"}
 
-        row2 = ttk.Frame(filters_box, style="UnifiedBar.TFrame")
-        row2.pack(fill=tk.X)
-        for text, var in [
-            ("Capitalised",       self.filter_capitalised),
-            ("Numbers (0–9)",     self.filter_has_digits),
-            ("Numbers (written)", self.filter_has_written_numbers),
-            ("Punctuation",       self.filter_has_punctuation),
-        ]:
-            ttk.Checkbutton(row2, text=text, variable=var,
-                            command=self._apply_filters).pack(side=tk.LEFT, padx=(0, 16),
-                                                              pady=3)
-
-        row3 = ttk.Frame(filters_box, style="UnifiedBar.TFrame")
-        row3.pack(fill=tk.X)
         ttk.Checkbutton(
-            row3, text="Has frequency", variable=self.filter_has_frequency,
-            command=self._apply_filters,
-        ).pack(side=tk.LEFT, padx=(0, 16), pady=3)
+            filters_box, text="Has comments", variable=self.filter_has_comments,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=0, column=0, **cell_pad)
+        ttk.Checkbutton(
+            filters_box, text="Is brief", variable=self.filter_is_brief,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=0, column=1, **cell_pad)
+        ttk.Checkbutton(
+            filters_box, text="Bookmarked", variable=self.filter_bookmarked,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=0, column=2, **cell_pad)
+        ttk.Checkbutton(
+            filters_box, text="Conflicts", variable=self.filter_conflicts,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=0, column=3, **cell_pad)
 
-        top_group = ttk.Frame(row3, style="UnifiedBar.TFrame")
-        top_group.pack(side=tk.LEFT, padx=(0, 16), pady=3)
+        ttk.Checkbutton(
+            filters_box, text="Capitalised", variable=self.filter_capitalised,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=1, column=0, **cell_pad)
+        ttk.Checkbutton(
+            filters_box, text="Numbers (0–9)", variable=self.filter_has_digits,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=1, column=1, **cell_pad)
+        ttk.Checkbutton(
+            filters_box, text="Numbers (written)",
+            variable=self.filter_has_written_numbers,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=1, column=2, **cell_pad)
+        ttk.Checkbutton(
+            filters_box, text="Punctuation", variable=self.filter_has_punctuation,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=1, column=3, **cell_pad)
+
+        ttk.Checkbutton(
+            filters_box, text="Has frequency", variable=self.filter_has_frequency,
+            style=check_style, command=self._apply_filters,
+        ).grid(row=2, column=0, **cell_pad)
+
+        top_group = ttk.Frame(filters_box, style="UnifiedBarInner.TFrame")
+        top_group.grid(row=2, column=1, sticky="w", pady=4)
         ttk.Checkbutton(
             top_group, text="Top", variable=self.filter_top_freq,
-            command=self._apply_filters,
+            style=check_style, command=self._apply_filters,
         ).pack(side=tk.LEFT)
-        ttk.Entry(top_group, textvariable=self.filter_top_freq_n_var, width=6).pack(
-            side=tk.LEFT, padx=(4, 4),
-        )
-        ttk.Label(top_group, text="entries by frequency",
-                  style="UnifiedBar.TLabel").pack(side=tk.LEFT)
+        ttk.Entry(
+            top_group, textvariable=self.filter_top_freq_n_var, width=4,
+        ).pack(side=tk.LEFT, padx=(6, 6))
+        ttk.Label(
+            top_group, text="entries by frequency", style="UnifiedBar.TLabel",
+        ).pack(side=tk.LEFT)
 
         ttk.Checkbutton(
-            row3, text="Show frequency column",
+            filters_box, text="Focus mode", variable=self.focus_mode,
+            style=check_style, command=self._toggle_focus_mode,
+        ).grid(row=2, column=2, padx=(0, 14), pady=4, sticky="w")
+        ttk.Checkbutton(
+            filters_box, text="Show frequency column",
             variable=self.show_freq_column,
-            command=self._toggle_freq_column,
-        ).pack(side=tk.RIGHT, pady=3)
-
-        ttk.Checkbutton(
-            row3, text="Focus mode",
-            variable=self.focus_mode,
-            command=self._toggle_focus_mode,
-        ).pack(side=tk.RIGHT, padx=(0, 16), pady=3)
+            style=check_style, command=self._toggle_freq_column,
+        ).grid(row=2, column=3, padx=(0, 0), pady=4, sticky="w")
 
         # Hidden count label used by legacy code paths (kept as None-safe
         # reference; the visible count is now in self.count_chip).
@@ -558,7 +541,7 @@ class DictionaryTab(ttk.Frame):
 
         # Establish initial expanded / collapsed visual.
         if self.unified_expanded:
-            self.unified_body.pack(fill=tk.X, padx=2, pady=(0, 4))
+            self.unified_body.pack(fill=tk.X, padx=0, pady=(0, 0))
         else:
             self.unified_label.config(text="▶  Search & Filters")
         self._refresh_dictionary_header()
@@ -575,7 +558,7 @@ class DictionaryTab(ttk.Frame):
             self.unified_expanded = True
             self.unified_label.config(text="▼  Search & Filters")
             if not self.unified_body.winfo_ismapped():
-                self.unified_body.pack(fill=tk.X, padx=2, pady=(0, 4))
+                self.unified_body.pack(fill=tk.X, padx=0, pady=(0, 0))
             self._notify_collapse_state(False)
         if focus_field == "text":
             self.searchbar.focus_text_entry(append_char=append_char)
@@ -630,77 +613,6 @@ class DictionaryTab(ttk.Frame):
             self.expand_unified(focus_field="text", append_char=append_char)
         else:
             self.searchbar.focus_text_entry(append_char=append_char)
-
-    def _open_info_popup(self):
-        """Show a popover with full dictionary details."""
-        if hasattr(self, "_info_popup") and self._info_popup is not None:
-            try:
-                if self._info_popup.winfo_exists():
-                    self._info_popup.destroy()
-            except tk.TclError:
-                pass
-            self._info_popup = None
-
-        pop = tk.Toplevel(self.winfo_toplevel())
-        pop.wm_overrideredirect(True)
-        pop.transient(self.winfo_toplevel())
-        pop.configure(bg=C["border"])
-        self._info_popup = pop
-
-        inner = ttk.Frame(pop, style="Card.TFrame", padding=14)
-        inner.pack(padx=1, pady=1)
-
-        ttk.Label(inner, text=self.name or "Dictionary",
-                  style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(inner, text=self.dict_path or "Unsaved — not yet on disk",
-                  style="CardSubtitle.TLabel",
-                  wraplength=420).pack(anchor="w", pady=(2, 12))
-
-        stats = ttk.Frame(inner, style="CardActions.TFrame")
-        stats.pack(anchor="w")
-        rows = [
-            ("Entries",            f"{self._info_total:,}"),
-            ("Briefs",             f"{self._info_briefs:,}"),
-            ("Conflicts",          f"{self._info_conflicts:,}"),
-            ("Frequency matched",  f"{self._info_freq_pct}%"),
-            ("State",              "Unsaved" if self._json_dirty else "Saved"),
-        ]
-        for r, (k, v) in enumerate(rows):
-            ttk.Label(stats, text=k, style="CardSubtitle.TLabel").grid(
-                row=r, column=0, sticky="w", padx=(0, 18), pady=2,
-            )
-            ttk.Label(stats, text=v, style="CardItem.TLabel").grid(
-                row=r, column=1, sticky="w", pady=2,
-            )
-
-        # Actions
-        actions = ttk.Frame(inner, style="CardActions.TFrame")
-        actions.pack(anchor="w", pady=(12, 0))
-        ttk.Button(
-            actions, text="Copy path", style="Secondary.TButton",
-            command=lambda: self._copy_path_to_clipboard(),
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            actions, text="Close", style="Secondary.TButton",
-            command=pop.destroy,
-        ).pack(side=tk.LEFT, padx=(8, 0))
-
-        # Position the popover under the ⓘ button
-        try:
-            x = self.info_btn.winfo_rootx()
-            y = self.info_btn.winfo_rooty() + self.info_btn.winfo_height() + 4
-            pop.update_idletasks()
-            pw = pop.winfo_reqwidth()
-            sw = pop.winfo_screenwidth()
-            x = min(x, sw - pw - 12)
-            pop.wm_geometry(f"+{x}+{y}")
-        except tk.TclError:
-            pass
-
-        # Dismiss on Escape or click outside
-        pop.bind("<Escape>", lambda _e: pop.destroy())
-        pop.bind("<FocusOut>", lambda _e: pop.destroy())
-        pop.focus_set()
 
     def _update_no_match_hint(self, *, showing: int, search_active: bool):
         """Append a "no matches" indicator + a Clear-search affordance to
@@ -834,10 +746,12 @@ class DictionaryTab(ttk.Frame):
         self._next_btn.pack(side=tk.RIGHT, padx=(4, 8), pady=4)
         # Don't pack initially — shown on demand by _update_pagination
 
-        # Wrap tree+scrollbar in a frame so they sit side-by-side without
-        # interfering with the bottom-anchored pagination bar.
+        # Wrap tree+scrollbars in a grid so wide metadata columns can scroll
+        # horizontally instead of being squeezed or clipped.
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill=tk.BOTH, expand=True)
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
 
         self.tree = ttk.Treeview(
             tree_frame,
@@ -852,10 +766,12 @@ class DictionaryTab(ttk.Frame):
         # Colours pulled from the live palette so they update on theme switch.
         self._configure_tree_tags()
 
-        sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscroll=sb.set)
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        ysb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        xsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscroll=ysb.set, xscroll=xsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        ysb.grid(row=0, column=1, sticky="ns")
+        xsb.grid(row=1, column=0, sticky="ew")
 
         self.tree.bind("<ButtonRelease-1>", self._on_click)
         self.tree.bind("<ButtonRelease-1>", self._save_column_widths, add="+")
@@ -1490,7 +1406,7 @@ class DictionaryTab(ttk.Frame):
             if search_active and showing == 0:
                 self.count_chip.configure(style="HeaderDanger.TLabel")
             else:
-                self.count_chip.configure(style="HeaderInfo.TLabel")
+                self.count_chip.configure(style="HeaderChip.TLabel")
 
         self._update_no_match_hint(showing=showing, search_active=search_active)
 

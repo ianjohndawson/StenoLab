@@ -37,7 +37,7 @@ _HISTORY_GROUP = [
 
 class Toolbar(ttk.Frame):
     def __init__(self, parent, callbacks=None):
-        super().__init__(parent, style="Toolbar.TFrame", padding=(8, 6))
+        super().__init__(parent, style="Toolbar.TFrame", padding=(0, 0))
         self.callbacks = callbacks or {}
         self._build()
 
@@ -60,7 +60,7 @@ class Toolbar(ttk.Frame):
                 command=lambda k=key: self._trigger(k),
                 takefocus=False,
             )
-            btn.pack(side=tk.LEFT, padx=(0 if i == 0 else 2, 0))
+            btn.pack(side=tk.LEFT, padx=(0 if i == 0 else 1, 0))
             Tooltip(btn, tip)
             if attr:
                 setattr(self, attr, btn)
@@ -69,7 +69,7 @@ class Toolbar(ttk.Frame):
 
     def _add_separator(self, *, side):
         sep = ttk.Frame(self, width=1, style="ToolbarSeparator.TFrame")
-        sep.pack(side=side, padx=8, pady=4, fill=tk.Y)
+        sep.pack(side=side, padx=7, pady=5, fill=tk.Y)
 
     # ------------------------------------------------------------------
     def _trigger(self, key):

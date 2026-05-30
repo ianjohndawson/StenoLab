@@ -10,10 +10,18 @@ like two separate tools stacked on top of each other.
 import tkinter as tk
 from tkinter import ttk
 
-from ui.theme import C
-
 STENO_METHODS = ["Contains", "Begins With", "Ends With"]
 TEXT_METHODS = ["Contains", "Begins With", "Ends With"]
+
+# Shared combobox width so method and scope dropdowns line up and the
+# query fields start at the same horizontal position on every row.
+COMBO_WIDTH = 17
+
+# Grid columns: label | method/scope | query (expands) | trailing option
+_COL_LABEL = 0
+_COL_METHOD = 1
+_COL_ENTRY = 2
+_COL_OPTION = 3
 
 # Milliseconds to wait after the last keystroke before triggering a
 # filter pass.  Filtering 100k+ entries per keystroke is wasteful; this
@@ -45,59 +53,89 @@ class SearchBar(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _build(self):
-        # Columns: [label][method-combo][gap][query-entry (expands)][option-check]
-        for col, weight in [(0, 0), (1, 0), (2, 0), (3, 1), (4, 0)]:
-            self.columnconfigure(col, weight=weight)
+        self.columnconfigure(_COL_ENTRY, weight=1)
+        self.columnconfigure(_COL_LABEL, minsize=54)
+        self.columnconfigure(_COL_METHOD, minsize=136)
+        self.columnconfigure(_COL_OPTION, minsize=148)
 
-        pad_y = 4
+        row_pad = (4, 4)
         label_pad = (10, 8)
+        inner_pad = (0, 8)
 
         ttk.Label(self, text="Text:").grid(
-            row=0, column=0, sticky="w", padx=label_pad, pady=pad_y,
+            row=0, column=_COL_LABEL, sticky="e",
+            padx=label_pad, pady=row_pad,
         )
         self.text_method_box = ttk.Combobox(
             self, textvariable=self.text_method_var,
-            values=TEXT_METHODS, state="readonly", width=12,
+            values=TEXT_METHODS, state="readonly", width=COMBO_WIDTH,
         )
-        self.text_method_box.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=pad_y)
+        self.text_method_box.grid(
+            row=0, column=_COL_METHOD, sticky="w",
+            padx=inner_pad, pady=row_pad,
+        )
         self.text_entry = ttk.Entry(self, textvariable=self.text_query_var)
-        self.text_entry.grid(row=0, column=3, sticky="ew", padx=(0, 8), pady=pad_y)
+        self.text_entry.grid(
+            row=0, column=_COL_ENTRY, sticky="ew",
+            padx=(0, 8), pady=row_pad,
+        )
         self.match_case_check = ttk.Checkbutton(
             self, text="Match case", variable=self.text_match_case_var,
+            style="UnifiedBar.TCheckbutton",
         )
-        self.match_case_check.grid(row=0, column=4, sticky="w", padx=(0, 10), pady=pad_y)
+        self.match_case_check.grid(
+            row=0, column=_COL_OPTION, sticky="w",
+            padx=(0, 10), pady=row_pad,
+        )
 
         ttk.Label(self, text="Steno:").grid(
-            row=1, column=0, sticky="w", padx=label_pad, pady=pad_y,
+            row=1, column=_COL_LABEL, sticky="e",
+            padx=label_pad, pady=row_pad,
         )
         self.steno_method_box = ttk.Combobox(
             self, textvariable=self.steno_method_var,
-            values=STENO_METHODS, state="readonly", width=12,
+            values=STENO_METHODS, state="readonly", width=COMBO_WIDTH,
         )
-        self.steno_method_box.grid(row=1, column=1, sticky="w", padx=(0, 8), pady=pad_y)
+        self.steno_method_box.grid(
+            row=1, column=_COL_METHOD, sticky="w",
+            padx=inner_pad, pady=row_pad,
+        )
         self.steno_entry = ttk.Entry(self, textvariable=self.steno_query_var)
-        self.steno_entry.grid(row=1, column=3, sticky="ew", padx=(0, 8), pady=pad_y)
+        self.steno_entry.grid(
+            row=1, column=_COL_ENTRY, sticky="ew",
+            padx=(0, 8), pady=row_pad,
+        )
         self.whole_strokes_check = ttk.Checkbutton(
             self, text="Whole strokes only", variable=self.steno_whole_strokes_var,
+            style="UnifiedBar.TCheckbutton",
         )
-        self.whole_strokes_check.grid(row=1, column=4, sticky="w", padx=(0, 10), pady=pad_y)
+        self.whole_strokes_check.grid(
+            row=1, column=_COL_OPTION, sticky="w",
+            padx=(0, 10), pady=row_pad,
+        )
 
         ttk.Label(self, text="Scope:").grid(
-            row=2, column=0, sticky="w", padx=label_pad, pady=(pad_y, 8),
+            row=2, column=_COL_LABEL, sticky="e",
+            padx=label_pad, pady=(row_pad[0], 8),
         )
         self.scope_box = ttk.Combobox(
             self,
             textvariable=self.scope_var,
             values=["Current Dictionary", "All Dictionaries"],
             state="readonly",
-            width=20,
+            width=COMBO_WIDTH,
         )
-        self.scope_box.grid(row=2, column=1, columnspan=2, sticky="w",
-                            padx=(0, 8), pady=(pad_y, 8))
+        self.scope_box.grid(
+            row=2, column=_COL_METHOD, sticky="w",
+            padx=inner_pad, pady=(row_pad[0], 8),
+        )
         ttk.Button(
-            self, text="Clear", style="Secondary.TButton",
+            self, text="Clear", style="Compact.TButton",
             command=self.clear,
-        ).grid(row=2, column=4, sticky="e", padx=(0, 10), pady=(pad_y, 8))
+        ).grid(
+            row=2, column=_COL_OPTION, sticky="e",
+            padx=(0, 10), pady=(row_pad[0], 8),
+        )
 
     # ------------------------------------------------------------------
     def _bind_events(self):

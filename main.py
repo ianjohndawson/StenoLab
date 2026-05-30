@@ -68,6 +68,7 @@ class StenoApp(tk.Tk):
 
         self.tabs = {}
         self._find_replace_dlg = None   # singleton
+        self._restoring_tabs = False
 
         # Track which dictionary paths have been backed up since the program
         # started.  Each path triggers exactly one open-time backup; saves
@@ -261,7 +262,7 @@ class StenoApp(tk.Tk):
                 "redo":      self._redo,
             }
         )
-        self.toolbar.pack(fill=tk.X, padx=10, pady=(10, 0))
+        self.toolbar.pack(fill=tk.X, padx=10, pady=(8, 0))
 
         self.content_frame = ttk.Frame(self, style="AppShell.TFrame")
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -415,6 +416,8 @@ class StenoApp(tk.Tk):
                 entries=len(tab.entries),
                 active=tab.name,
             )
+            if not self._restoring_tabs:
+                self._save_open_tabs()
         self._refresh_undo_buttons()
 
     def _get_active_tab(self):
@@ -944,6 +947,10 @@ class StenoApp(tk.Tk):
     # ------------------------------------------------------------
     def _save_open_tabs(self):
         paths = []
+        active_path = None
+        active_tab = self._get_active_tab()
+        if active_tab is not None:
+            active_path = getattr(active_tab, "dict_path", None)
         for tab_id in self.notebook.tabs():
             try:
                 widget = self.notebook.nametowidget(tab_id)
@@ -953,15 +960,32 @@ class StenoApp(tk.Tk):
                 continue
         settings = load_settings()
         settings["open_tabs"] = paths
+        if active_path:
+            settings["active_tab"] = active_path
+        else:
+            settings.pop("active_tab", None)
         save_settings(settings)
 
     def _restore_open_tabs(self):
         settings = load_settings()
-        for path in settings.get("open_tabs", []):
-            try:
-                self._open_dictionary_path(path)
-            except Exception:
-                pass
+        active_path = settings.get("active_tab")
+        self._restoring_tabs = True
+        try:
+            for path in settings.get("open_tabs", []):
+                try:
+                    self._open_dictionary_path(path)
+                except Exception:
+                    pass
+        finally:
+            self._restoring_tabs = False
+
+        if active_path:
+            tab = self.tabs.get(os.path.normcase(os.path.abspath(active_path)))
+            if tab is not None:
+                try:
+                    self.notebook.select(tab)
+                except tk.TclError:
+                    pass
 
     def _on_close(self):
         """

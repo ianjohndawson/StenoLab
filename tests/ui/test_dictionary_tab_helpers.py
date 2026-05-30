@@ -1,6 +1,30 @@
 from ui.dictionary_tab import DictionaryTab, MAX_DISPLAY_ROWS
 
 
+def test_default_column_order_keeps_metadata_columns_visible():
+    assert DictionaryTab._make_column_order(show_freq=False, focus_mode=False) == [
+        "steno",
+        "english",
+        "S",
+        "W",
+        "B",
+        "added",
+        "modified",
+        "comments",
+    ]
+    assert DictionaryTab._make_column_order(show_freq=True, focus_mode=False) == [
+        "steno",
+        "english",
+        "S",
+        "W",
+        "B",
+        "F",
+        "added",
+        "modified",
+        "comments",
+    ]
+
+
 class FakeTree:
     def __init__(self, children):
         self._children = tuple(children)
